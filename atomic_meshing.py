@@ -4,16 +4,24 @@ from scipy.optimize import minimize
 from skimage.io import imread
 from mesh_init import initial_lattice
 import time
+import turtle
+
 
 #TODO
 def distance(v1, v2):
     return np.sqrt((v1[0] - v2[0])**2 + (v1[1] - v2[1])**2)
 
+"""
+A class that calculates and minimizes the total energy function of a lattice given an image.
+"""
 class Atomic_Mesh_Generator:
 
-    def __init__(self, atoms, image = imread("../test_images/circle.png",as_gray=True), nominal_distance = 10, beta = 0.5):
+    def __init__(self, atoms, image, nominal_distance = 10, beta = 0.5):
         self.atoms = atoms
-        self.image = image
+        if type(image) == np.ndarray:
+            self.image = image
+        else:
+            self.image = imread(image,as_gray=True)
 
         # nominal distance (force at which two atoms go from being repulsive to being attractive)
         self.d = nominal_distance  # could be determined by resolution
@@ -23,6 +31,8 @@ class Atomic_Mesh_Generator:
 
         #the scale of the image
         self.img_scale = 2
+
+        self.f_evals = 0
 
 
     # scalar potential of two atoms modelled by a polynomial function
@@ -53,35 +63,38 @@ class Atomic_Mesh_Generator:
 
     #TODO visualize
     def total_potential_energy(self, atoms):
+        self.f_evals += 1
+        print(self.f_evals)
         P = 0
         #tm_total = time.time()
         mean_ipf = 0
         mean_apf = 0
+        #print("pixels :", np.array(np.nonzero(self.image)).T.size / n)
         for i,a1 in enumerate(atoms):
             atomic_potential_field = 0
-            #tm = time.time()
+            tm = time.time()
             for j,a2 in enumerate(atoms):
                 if i != j:
                     atomic_potential_field += (1-self.beta)*self.atomic_potential(a1,a2)
-            #print("apf time ",time.time() - tm)
+            print("apf time ",time.time() - tm)
+
             image_potential_field = 0
             tm = time.time()
-            #TODO the image potential energy really depends on the density and total amount of pixels
-            #only take every nth pixel
+            #TODO limit amount of pixels to whats necessary
             n = 100
-            for row in range(0,self.image.shape[0],n):
-                for col in range(0,self.image.shape[1],n):
-                    rows = self.image.shape[0]
-                    pixel_val = self.image[row][col]
+            for i,pix in enumerate(np.array(np.nonzero(self.image)).T):
+                if i % n == 0:
+                    x = pix[0]
+                    y = pix[1]
+                    pixel_val = self.image[x][y]
                     if pixel_val > 0:
-                        image_potential_field += self.image_feature_force(a1,(rows-row,col),pixel_val)
-                    #print(a1,rows-row,col,image_potential_field)
+                        image_potential_field += self.image_feature_force(a1,(x,y),pixel_val)
             #print("ipf time",time.time()-tm)
             mean_ipf += image_potential_field
             mean_apf += atomic_potential_field
             P = P + 0.5 * (atomic_potential_field + self.beta * image_potential_field)
         #print("time total ",time.time() - tm_total)
-        print(mean_ipf,mean_apf)
+        #print("ImagePF/AtomPF",mean_ipf,mean_apf)
         return P
 
     def total_potential_energy_1D(self, atoms):
@@ -91,7 +104,7 @@ class Atomic_Mesh_Generator:
         self.atoms = self.atoms + np.random.normal(0,self.d/5,size=self.atoms.shape)
 
     """
-    We could test different minimizers here. For example cobyla with a constraint 
+    Could test different minimizers here. For example L-BFGS with a constraint 
     of atoms being inside boundary
     """
     def optimize_lattice(self):
@@ -99,7 +112,7 @@ class Atomic_Mesh_Generator:
             P_init = self.total_potential_energy(self.atoms)
             print("Total potential energy", P_init)
             self.random_perturb()
-            res = minimize(self.total_potential_energy_1D, self.atoms.ravel(),method='L-BFGS-B', jac='2-point',tol = 0.01)
+            res = minimize(self.total_potential_energy_1D, self.atoms.ravel(),method='l-BFGS-B', jac='2-point',options={"maxfun":10,"disp":True})
             print("success ",res.success)
             self.atoms = res.x.reshape(-1,2)
             #stopping condition
@@ -108,19 +121,21 @@ class Atomic_Mesh_Generator:
                 break
         return self.atoms
 
+    """
+    Single call of the function 'minimze'. Can be used to display moving atoms. 
+    """
+    def optimization_step(self):
+        tm = time.time()
+        P_init = self.total_potential_energy(self.atoms)
+        print("Total potential energy", P_init)
+        res = minimize(self.total_potential_energy_1D, self.atoms.ravel(), method='L-BFGS-B', jac='2-point',
+                       options={"maxiter": 5, "disp": True})
+        print("success ", res.success)
+        self.atoms = res.x.reshape(-1, 2)
+        print("difference in potential energy ", P_init - self.total_potential_energy(self.atoms), P_init * 0.01)
+        print(time.time() - tm,"seconds")
+        return self.atoms
 
-def image_boundary():
-    pass
-
-#quick test with grid around circle
-atoms = np.array(initial_lattice(cellsize=50)["vertices"])
-img = imread("../test_images/circle.png",as_gray=True)
-print(atoms.shape,img.shape,img.max())
-generator = Atomic_Mesh_Generator(atoms,img,nominal_distance=40,beta=0.5)
-optimized_lattice = generator.optimize_lattice()
-
-import turtle
-import view
 
 turtle.speed(0)
 turtle.tracer(0)
@@ -128,6 +143,13 @@ turtle.setworldcoordinates(0,0,2000,1000)
 turtle.bgpic("../test_images/circle.png")
 boundary = Polygon([(0,0),(500,0),(0,500)])
 
+#quick test with grid around circle
+atoms = np.array(initial_lattice(cellsize=50)["vertices"])
+print(atoms.size)
+img = imread("../test_images/circle.png",as_gray=True)
+print(atoms.shape,img.shape,img.max())
+#generator = Atomic_Mesh_Generator(atoms,img,nominal_distance=40,beta=0.5)
+#optimized_lattice = generator.optimize_lattice()
+
 #view.draw_graph(turtle.Turtle(),graph = {"vertices":initial_lattice(cellsize=50,boundary=boundary)["vertices"],"edges":[]})
-view.draw_graph(turtle.Turtle(),graph = {"vertices":optimized_lattice,"edges":[]})
-turtle.mainloop()
+#view.draw_graph(turtle.Turtle(),graph = {"vertices":optimized_lattice,"edges":[]})
