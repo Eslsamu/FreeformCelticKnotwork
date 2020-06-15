@@ -80,7 +80,7 @@ def init_pixels_go(img_file, threshold=150,amount=128, randomize = False):
     if randomize:
         lattice = random.sample(list(pixelpoints),amount)
     else:
-        lattice = pixelpoints[::int(len(pixelpoints)/20)]
-    print(lattice)
+        lattice = pixelpoints[::int(len(pixelpoints)/2)]
+    return lattice
 
 
