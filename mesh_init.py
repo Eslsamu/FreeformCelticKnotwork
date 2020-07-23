@@ -69,18 +69,22 @@ def init_pixels(img_file, threshold=150,amount=20, randomize = False):
 same as above but prints to the commandline to communicate with go 
 """
 #TODO adapt with watershed algorithm for interactive object segmentation
-def init_pixels_go(img_file, threshold=150,amount=128, randomize = False):
+def init_pixels_go(img_file, threshold=150,amount=128, distance = 30,randomize = False):
     im = cv2.imread(img_file)
     imgray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+    print(imgray.shape)
+    print(imgray.nonzero()[0].shape)
     ret, thresh = cv2.threshold(imgray, threshold, 255, 0)
     contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     mask = np.zeros(imgray.shape, np.uint8)
     cv2.drawContours(mask, contours, 0, 255, -1)
-    pixelpoints = np.transpose(np.nonzero(mask))
+    pixelpoints = np.transpose(np.nonzero(imgray))
+    #x-y from row-column to col-row
+    pixelpoints[:,[0,1]] = pixelpoints[:,[1,0]]
     if randomize:
         lattice = random.sample(list(pixelpoints),amount)
     else:
-        lattice = pixelpoints[::int(len(pixelpoints)/2)]
+        lattice = pixelpoints[::distance**2]
     return lattice
 
 

@@ -27,7 +27,7 @@ from __future__ import print_function
 
 import numpy as np
 import cv2 as cv
-
+import os
 import sys
 
 class App():
@@ -95,13 +95,11 @@ class App():
 
     def run(self):
         # Loading images
-        if len(sys.argv) == 2:
-            filename = sys.argv[1] # for drawing purposes
+        filename = sys.argv[1] # for drawing purposes
+        if len(sys.argv) == 3:
+            output_filename = sys.argv[2] # saving img
         else:
-            print("No input image given, so loading default image, lena.jpg \n")
-            print("Correct Usage: python grabcut.py <filename> \n")
-            filename = 'lena.jpg'
-
+            output_filename = "mask_" + os.path.basename(filename)
         self.img = cv.imread(cv.samples.findFile(filename))
         self.img2 = self.img.copy()                               # a copy of original image
         self.mask = np.zeros(self.img.shape[:2], dtype = np.uint8) # mask initialized to PR_BG
@@ -136,10 +134,8 @@ class App():
             elif k == ord('3'): # PR_FG drawing
                 self.value = self.DRAW_PR_FG
             elif k == ord('s'): # save image
-                bar = np.zeros((self.img.shape[0], 5, 3), np.uint8)
-                res = np.hstack((self.img2, bar, self.img, bar, self.output))
-                cv.imwrite('grabcut_output.png', res)
-                print(" Result saved as image \n")
+                cv.imwrite(output_filename, self.output)
+                print(" Result saved as image " + output_filename + "\n" )
             elif k == ord('r'): # reset everything
                 print("resetting \n")
                 self.rect = (0,0,1,1)

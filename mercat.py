@@ -6,7 +6,7 @@ def midpoint(v1,v2):
 """
 angle starts counterclockwise from west to east in turtle
 """
-def compute_curves(vertices, edges,nodes = None,curves =[],squish=0.5):
+def compute_curves(vertices,edges,nodes = None,curves =[],squish=0.5):
     if nodes == None:
         nodes = []
         curves = []
@@ -27,6 +27,7 @@ def compute_curves(vertices, edges,nodes = None,curves =[],squish=0.5):
     else:
         facing_junction = curr_edge[1]
         opp_junction = curr_edge[0]
+
 
     #get all distinct edges on this junction/vertex
     adj_edges = [edge for edge in edges if (facing_junction in edge) & (edge != curr_edge)]
@@ -94,8 +95,6 @@ def compute_curves(vertices, edges,nodes = None,curves =[],squish=0.5):
     x1, y1 = midpoint(vertices[curr_edge[0]], vertices[curr_edge[1]])
     x2, y2 = midpoint(vertices[next_edge[0]], vertices[next_edge[1]])
 
-    #squishing parameter for nodes facing towards each other
-    gam = 3
     #squishing parameter for nodes facing apart from each other
     if len(angles) > 0:
         tau = (np.min(angles)/np.pi) * squish
@@ -106,7 +105,7 @@ def compute_curves(vertices, edges,nodes = None,curves =[],squish=0.5):
     edgelength1 = np.sqrt((opp_x - junc_x) ** 2 + (opp_y - junc_y) ** 2)
     edgelength2 = np.sqrt((next_edge_opp_x - junc_x) ** 2 + (next_edge_opp_y - junc_y) ** 2)
 
-    if curr_edge == next_edge:
+    if (curr_edge == next_edge):
         #curve 1
         #node 1 is the current node and node 2 is at facing vertex
         #cntr1 is going in the usual way in current direction by tau (?)
@@ -159,7 +158,6 @@ def compute_curves(vertices, edges,nodes = None,curves =[],squish=0.5):
                   y2 + np.sin(next_dir + edge_angle2) * edgelength2 * tau]
 
         curves.append(([x1, y1], cntrl1, cntrl2, [x2,y2]))
-
 
     #recursive call of this method starting with the next node
     nodes.pop(nodes.index(next_node))
