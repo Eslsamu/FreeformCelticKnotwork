@@ -1,5 +1,8 @@
 import dmsh
 import numpy as np
+import optimesh
+from meshplex import MeshTri
+from optimesh.helpers import runner
 
 def generate(
         geo,
@@ -16,7 +19,9 @@ def generate(
         edge_size_function = edge_size
         # Find h0 by sampling
         h00 = (geo.bounding_box[1] - geo.bounding_box[0]) / 100
+
         pts = dmsh.main.create_staggered_grid(h00, geo.bounding_box)
+        print(pts)
         sizes = edge_size_function(pts.T)
         assert np.all(sizes > 0.0), "edge_size_function must be strictly positive."
         h0 = np.min(sizes)
@@ -30,16 +35,12 @@ def generate(
         np.random.seed(random_seed)
 
     pts = dmsh.main.create_staggered_grid(h0, geo.bounding_box)
-
     eps = 1.0e-10
-
     # remove points outside of the region
     pts = pts[geo.dist(pts.T) < eps]
-
     # evaluate the element size function, remove points according to it
     alpha = 1.0 / edge_size_function(pts.T) ** 2
     pts = pts[np.random.rand(pts.shape[0]) < alpha / np.max(alpha)]
-
     num_feature_points = geo.feature_points.shape[0]
     if num_feature_points > 0:
         # remove all points which are equal to a feature point
@@ -76,6 +77,7 @@ def generate(
     #     )
     # else:
     #     assert smoothing_method == "distmesh"
+
     mesh = dmsh.main.distmesh_smoothing(
         mesh,
         edges,
@@ -89,7 +91,26 @@ def generate(
         delta_t=0.2,
         f_scale=1.2,
     )
+
     points = mesh.node_coords
     cells = mesh.cells["nodes"]
 
     return points, cells, edges
+
+def quasi_newton_uniform_full(points, cells, *args, **kwargs):
+    def get_new_points(mesh):
+        # TODO need copy?
+        x = mesh.node_coords.copy()
+        x += optimesh.cvt._full_hessian.update(mesh)
+        return x
+
+    mesh = MeshTri(points, cells)
+
+    runner(
+        get_new_points,
+        mesh,
+        *args,
+        **kwargs,
+        method_name="Centroidal Voronoi Tesselation (CVT), uniform density, full-Hessian variant"
+    )
+    return mesh
