@@ -23,11 +23,12 @@ from PyQt5.QtWidgets import QWidget, QPushButton,\
 from PyQt5.QtGui import QPainter, QPen, QPainterPath, QImage, QPolygon, QColor, QBrush, QPalette
 from PyQt5.QtCore import Qt, QPoint
 from mercat import compute_curves
-from mesh_init import init_pixels_go
+
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import interp1d
 from shapely.ops import polylabel
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, Point
 
 
 """
@@ -104,7 +105,7 @@ class MeshArea(QWidget):
 
         #mark the contour points
         if self.parent.display_contour_points:
-            for x, y in self.parent.contour_points[self.parent.contour_level]:
+            for x, y in self.parent.contour_points[self.parent.selected_segment]:
                 self.qp.setPen(self.green_pen)
                 self.qp.drawPoint(x,y)
 
@@ -278,12 +279,16 @@ class Window(QMainWindow):
     display_contour_points = False
     display_control_points = False
     dmsh.generate = dt.generate
+    processed_img = None
     img_file = None
     display_img_file = None
     contour_points = []
-    contour_level = 0
-    contour_roughness = 0.01
-    edge_size = 70
+    segments = []
+    selected_segment = 0
+    contour_roughness = 0.05
+    blur = 2
+    canny_th = 0.2
+    min_edge_size = 15
     mesh = None
 
     def __init__(self):
@@ -342,69 +347,65 @@ class Window(QMainWindow):
     def create_input(self):
         # box input elements together
         groupbox = QGroupBox()
-        vbox = QVBoxLayout()
-        groupbox.setLayout(vbox)
+        grid = QGridLayout()
+        groupbox.setLayout(grid)
 
         # button 1
         self.button1 = QPushButton("load pic")
         self.button1.clicked.connect(self.load_pic)
-        vbox.addWidget(self.button1)
+        grid.addWidget(self.button1, 0, 0)
 
         # button 2
         self.button2 = QPushButton("show knot")
         self.button2.clicked.connect(self.show_knot)
-        vbox.addWidget(self.button2)
+        grid.addWidget(self.button2, 1, 0)
 
         # button 3
         self.button3 = QPushButton("meshing")
         self.button3.clicked.connect(self.meshing)
-        vbox.addWidget(self.button3)
+        grid.addWidget(self.button3, 2,0)
 
         # button 4
         self.button4 = QPushButton("show graph")
         self.button4.clicked.connect(self.show_graph)
-        vbox.addWidget(self.button4)
+        grid.addWidget(self.button4, 3, 0)
 
         #button 5
         self.button5 = QPushButton("cut mask")
         self.button5.clicked.connect(self.grabcut)
-        vbox.addWidget(self.button5)
+        grid.addWidget(self.button5, 0, 1)
 
         #button 6
         self.button6 = QPushButton("find contours")
         self.button6.clicked.connect(self.findContours)
-        vbox.addWidget(self.button6)
+        grid.addWidget(self.button6, 1,1)
 
         # button 7
         self.button7 = QPushButton("show contour points")
         self.button7.clicked.connect(self.show_contour_points)
-        vbox.addWidget(self.button7)
-
-        # button 8
-        self.button8 = QPushButton("test shape")
-        self.button8.clicked.connect(self.test_shape)
-        vbox.addWidget(self.button8)
-
+        grid.addWidget(self.button7,2,1)
 
         # slider contour level
         self.slider1 = QSlider(Qt.Horizontal)
         self.slider1.setRange(0, 10)
-        self.slider1.setValue(self.contour_level)
+        self.slider1.setValue(self.selected_segment)
         # slider value label
         self.label1 = QLabel()
-        self.slider1.valueChanged.connect(self.set_contour_level)
-        vbox.addWidget(self.slider1)
-        vbox.addWidget(self.label1)
+        self.slider1.valueChanged.connect(self.set_selected_segment)
+        self.set_selected_segment()
+        grid.addWidget(self.slider1,0,2)
+        grid.addWidget(self.label1,0,3)
 
-        # slider edge length
+        # slider edge size
         self.slider2 = QSlider(Qt.Horizontal)
         self.slider2.setRange(5, 100)
-        self.slider2.setValue(self.edge_size)
+        self.slider2.setValue(self.min_edge_size)
         # slider value label
         self.label2 = QLabel()
-        self.slider2.valueChanged.connect(self.set_edge_size)
-        vbox.addWidget(self.slider2)
-        vbox.addWidget(self.label2)
+        self.slider2.valueChanged.connect(self.set_min_edge_size)
+        self.set_min_edge_size()
+        grid.addWidget(self.slider2,1,2)
+        grid.addWidget(self.label2,1,3)
 
         # slider knot width
         self.slider3 = QSlider(Qt.Horizontal)
@@ -413,30 +414,47 @@ class Window(QMainWindow):
         # slider value label
         self.label3 = QLabel()
         self.slider3.valueChanged.connect(self.set_knot_width)
-        vbox.addWidget(self.slider3)
-        vbox.addWidget(self.label3)
+        self.set_knot_width()
+        grid.addWidget(self.slider3,2,2)
+        grid.addWidget(self.label3,2,3)
 
         # slider contour roughness
         self.slider4 = QSlider(Qt.Horizontal)
         self.slider4.setRange(0, 20)
         self.slider4.setSingleStep(1)
-        self.slider4.setValue(self.contour_roughness*1000)
+        self.slider4.setValue(self.contour_roughness*100)
         # slider value label
         self.label4 = QLabel()
         self.slider4.valueChanged.connect(self.set_contour_roughness)
-        vbox.addWidget(self.slider4)
-        vbox.addWidget(self.label4)
+        self.set_contour_roughness()
+        grid.addWidget(self.slider4,3,2)
+        grid.addWidget(self.label4,3,3)
+
+        # slider blur
+        self.slider5 = QSlider(Qt.Horizontal)
+        self.slider5.setRange(0, 10)
+        self.slider5.setSingleStep(1)
+        self.slider5.setValue(self.blur)
+        # slider value label
+        self.label5 = QLabel()
+        self.slider5.valueChanged.connect(self.set_blur)
+        self.set_blur()
+        grid.addWidget(self.slider5, 4, 2)
+        grid.addWidget(self.label5, 4, 3)
 
         return groupbox
 
-    def set_contour_level(self):
-        self.contour_level = self.slider1.value()
-        self.label1.setText("contour lvl " + str(self.contour_level))
+    def set_selected_segment(self):
+        self.selected_segment = self.slider1.value()
+        self.label1.setText("contour lvl " + str(self.selected_segment))
         self.contour_points = []
 
-    def set_edge_size(self):
-        self.edge_size = self.slider2.value()
-        self.label2.setText("edge size " + str(self.edge_size))
+        if self.processed_img is not None:
+            self.draw_segments()
+
+    def set_min_edge_size(self):
+        self.min_edge_size = self.slider2.value()
+        self.label2.setText("edge size " + str(self.min_edge_size))
 
     def set_knot_width(self):
         self.knot_width = self.slider3.value()
@@ -444,8 +462,13 @@ class Window(QMainWindow):
         self.knotArea.update()
 
     def set_contour_roughness(self):
-        self.contour_roughness = self.slider4.value() / 1000
+        self.contour_roughness = self.slider4.value() / 100
         self.label4.setText("contour roughness " + str(self.contour_roughness))
+        self.contour_points = []
+
+    def set_blur(self):
+        self.blur = self.slider5.value()
+        self.label5.setText("blur " + str(self.blur))
         self.contour_points = []
 
     def show_knot(self):
@@ -509,157 +532,223 @@ class Window(QMainWindow):
 
         im = cv.imread(self.img_file)
         imgray = cv.cvtColor(im, cv.COLOR_BGR2GRAY)
-        ret, thresh = cv.threshold(imgray, 127, 255, 0)
-        all_contours, _ = cv.findContours(thresh, cv.RETR_TREE, cv.CHAIN_APPROX_NONE)
+
+        median = np.median(imgray)
+        thresh = median * self.canny_th
+        edges = cv.Canny(im, thresh, thresh * 2)
+
+        #TODO
+        if self.blur > 0:
+            edges = cv.blur(edges,(self.blur,self.blur))
+
+
+
+        self.contour_points, h = cv.findContours(edges, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+        print("inital amount of cnts", len(self.contour_points))
 
         #remove all contours with arclength less than 3 * edge length
-        self.contour_points = []
-        for contour in all_contours:
-            if cv.arcLength(contour,True) > self.edge_size * 3:
-                self.contour_points.append(contour)
+        cnts = []
+        for contour in self.contour_points:
+            if cv.arcLength(contour,True) > self.min_edge_size * 3:
+                cnts.append(contour)
+        print("removed", len(self.contour_points) - len(cnts), "short contours")
+        self.contour_points = cnts
 
-        #make contour segments and by making that remove contours which result in a too small area segment
+        #remove the inner part of a contours (hole)
+        #in opencv they are represented with a negative sign for their area --> not working correctly most of the time
+        """
+        cnts = []
+        for contour in self.contour_points:
+            if cv.contourArea(contour, True) > 0:
+                cnts.append(contour)
+            else:
+                print("remove inner part")
+        self.contour_points = cnts
+        """
 
-        #approximate contours by ramer douglas peucker algorithm
-        self.contour_points = [cv.approxPolyDP(contour,
-                 self.contour_roughness*cv.arcLength(self.contour_points[i],True), False).reshape(-1,2)
-                 for i,contour in enumerate(self.contour_points)]
+        #TODO till wednesday night
 
-        #merge points that are very close together (less than 3/4 of one edge length)
-        #necessary?
+        #TODO graph mesh display
 
-        #delete contours with less than 3 points (not even forming a polygon)
-        for i, contour in enumerate(self.contour_points):
-            if len(contour) < 3:
-                del self.contour_points[i]
+        #TODO is polylabel working?
+        #TODO apaptive edge length and minimum contour
+
+        #TODO eyeball case (color/gray blur problem) --> maybe use edges for rgb and gray
+        #TODO smartly remove details from images with k-means or watershed (like viking face, viking hammer)
+
+        #TODO replace bad quality cells with single graph elements
+
+        # delete contours with less than 3 points (not even forming a polygon)
+        cnts = []
+        for contour in self.contour_points:
+            if len(contour) > 2:
+                cnts.append(contour)
+        print("removed", len(self.contour_points) - len(cnts), " contours with less than 3 points")
+        self.contour_points = cnts
 
 
-        #remove too thin segments
-        self.contour_points = self.remove_thin_segments(self.contour_points)
+        #simplify polygons using a topology preserving variant of the Visvalingam-Whyatt Algorithm
+        from simplification.cutil import (
+            simplify_coords_vwp,
+        )
+        self.contour_points = [simplify_coords_vwp(np.squeeze(contour), 30.0) for contour in self.contour_points]
 
-        print("now got contours:", len(self.contour_points))
-        #self.remove_small_inflection_points()
+        # turn contours into polygon objects
+        self.contour_points = [Polygon(contour) for contour in self.contour_points]
 
-        self.slider1.setRange(0, len(self.contour_points)-1)
+        cnts = []
+        self.invalid_segments = []
+        for polygon in self.contour_points:
+            if polygon.is_valid:
+                cnts.append(polygon)
+            else:
+                self.invalid_segments.append(polygon)
+        self.contour_points = cnts
 
-        cont_im = im.copy()
-        # draw all approximated contours except the selected level on image as green lines
-        for lvl in range(len(self.contour_points)):
-            if lvl != self.contour_level:
-                contour = self.contour_points[lvl].reshape(-1, 2)
-                for i in range(len(contour)):
-                    cv.line(cont_im, tuple(contour[i]), tuple(contour[(i+1) % len(contour)]), (0, 255, 0))
 
-        # draw approximated selected contour on image as red lines
-        contour = self.contour_points[self.contour_level].reshape(-1, 2)
-        for i in range(len(contour)):
-            cv.line(cont_im, tuple(contour[i]), tuple(contour[(i + 1) % len(contour)]), (0, 0, 255), thickness=2)
+        #form segments from contours
+        self.segments, self.thin_segments = self.contours_to_segments(self.contour_points)
 
-        #draw centroid of selected contour
-        polygon = Polygon(np.squeeze(self.contour_points[self.contour_level]))
-        try:
-            label = polylabel(polygon, tolerance=1)
-        except Exception:
-            print(polygon, self.contour_level)
-        cv.circle(cont_im, (int(label.x), int(label.y)), 5, (255, 0, 0), -1)
+        #remove too thin segments (distance of visual center to border is less than minimum edge size)
+        #self.contour_points, self.thin_segments = self.remove_thin_segments(self.contour_points)
+
+
+        print("found",len(self.contour_points),"valid contours")
+
+        # set slider range for amount of segments
+        self.slider1.setRange(0, len(self.segments) - 1)
+
+        #save image
+        self.processed_img = edges
+
+        #draw segments
+        self.draw_segments()
+
+    def draw_segments(self):
+        #grayscale image back into RGB to draw contours
+        plt.imshow(np.array(self.processed_img))
+
+        # draw all too thin segments
+        for polygon in self.thin_segments:
+            plt.plot(*polygon.exterior.xy,color = "blue",linewidth = 1)
+
+
+        # draw all invalid contours
+        for polygon in self.invalid_segments:
+            plt.plot(*polygon.exterior.xy, color = "yellow",linewidth = 1)
+
+        #draw segments
+        if len(self.segments) > 0:
+            for polygon in self.segments:
+                # draw all approximated contours except the selected level on image as green lines
+                if polygon != self.segments[self.selected_segment]:
+                    plt.plot(*polygon.exterior.xy, color = "green",linewidth = 1)
+                # draw approximated selected contour on image as red lines
+
+            polygon = self.segments[self.selected_segment]
+            plt.plot(*polygon.exterior.xy, color = "red",linewidth = 2)
+            for int in polygon.interiors:
+                plt.plot(*int.xy, color="red",linewidth = 2)
+            try:
+                label = polylabel(polygon, tolerance=1)
+                plt.plot(label.x, label.y, color="red", linewidth = 5, marker="X")
+            except Exception:
+                print(polygon, self.selected_segment)
 
         #contour image file
         self.display_img_file = "cont_" + os.path.basename(self.img_file)
-        cv.imwrite(self.display_img_file, cont_im)
-
+        plt.savefig(self.display_img_file)
+        plt.close()
         self.imgArea.update()
 
-    # remove all contours with a too thin area
-    # check if the distance from the polylabel of the contour to itself is less than 3/4 of its edge length
-    # use opencv pointpolygontest
-    # (which means we won't need to mesh in this area)
-    # but maybe this solves itself but replacing small angle cells with single graph elements
-    #TODO from contours to segments
-    def remove_thin_segments(self, contours):
-        new_contours = []
-        for i, contour in enumerate(contours):
+
+
+    #a segment is represented as a polygon
+    def contours_to_segments(self, contours):
+        segments = []
+        thin_segments = []
+        for i in range(len(contours)):
+            contour1 = contours[i]
+
+            #find all contours inside inside the current contour
+            contains = []
+            for j in range(len(contours)):
+                if contour1.contains(contours[j]) and i != j:
+                    contains.append(contours[j])
+
+            #create a segment of the current contour with its containing contours as holes
+            segment = contour1
+            for j, cnt in enumerate(contains):
+                segment = segment.difference(cnt)
+
             # find visual center (polylabel) of segment
-            polygon = Polygon(np.squeeze(contour))
-            if not polygon.is_valid:
-                print("invalid contour", i, contour)
-                continue
-            label = polylabel(polygon, tolerance=1)
-
+            label = polylabel(segment, tolerance=1)
             # determine distance from segment border
-            dist = cv.pointPolygonTest(contour, (label.x, label.y), True)
-
-            # remove segment if the distance from its center is less than an edge size (too small)
-            if dist < self.edge_size:
-                print("too small contour", i, contour)
+            dist = segment.exterior.distance(Point(label.x, label.y))
+            # remove segment if the distance from its center is less than an edge size (too thin)
+            if dist < self.min_edge_size:
+                # print("too small contour", i, contour)
+                thin_segments.append(segment)
             else:
-                print("append", i, polygon)
-                new_contours.append(contour)
+                segments.append(segment)
 
-        return new_contours
+        return segments, thin_segments
 
-    """
-        remove contour points that have the smallest inflection 
-        """
-    def remove_small_inflection_points(self):
-        points = self.contour_points.tolist()
-
-        while True:
-            if len(points) < 3:
-                break
-            length = len(points)
-
-            i = 0
-            while i < len(points):
-                print(i, len(points))
-                # compute angle between three points, i.e degree of inflection for the midpoint
-                p1 = points[i]
-                p2 = points[(i + 1) % len(points)]
-                p3 = points[(i + 2) % len(points)]
-                p12 = np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
-                p13 = np.sqrt((p1[0] - p3[0]) ** 2 + (p1[1] - p3[1]) ** 2)
-                p23 = np.sqrt((p2[0] - p3[0]) ** 2 + (p2[1] - p3[1]) ** 2)
-                angle = np.arccos((p12 ** 2 + p13 ** 2 - p23 ** 2) / (2 * p12 * p13))
-                print(p1, p2, p3, angle)
-                print(p12,p23)
-                if angle < self.contour_roughness and p12 < self.edge_size and p23 < self.edge_size:
-                    print("remove", p2)
-                    points.pop((i + 1) % len(points))
-                elif angle < self.contour_roughness:
-                    #if the inflection is high but the distance between the points is too small
-                    #TODO save the point to add a single vertex to the graph later (and maybe merge the two neighbor points)
-                    pass
-                i += 1
-            if length == len(points):
-                break
-
-        self.contour_points = np.array(points)
-
-    #TODO remove small angle points with
 
     def meshing(self):
-        if len(self.contour_points) == 0:
+        if len(self.segments) == 0:
             self.findContours()
 
-        outer = dmsh.Polygon(self.contour_points[0])
-        inner = dmsh.Polygon(self.contour_points[3])
-        geo = dmsh.Difference(outer,inner)
+        #TODO mesh each segment with adaptive edge size
+        for i,segment in enumerate(self.segments):
+            print("meshing segment",i,"/",len(self.segments))
+            #exterior boundary (dmsh does not include the last point twice to close the polygon such as shapely)
+            e = list(segment.exterior.coords.xy)
+            outer = dmsh.Polygon([[e[0][i],e[1][i]] for i in range(len(e[0])-1)])
 
-        X, cells, edges = dmsh.generate(geo, edge_size=self.edge_size)
+            #interior boundary
+            inner = []
+            for int in segment.interiors:
+                h = list(int.coords.xy)
+                hole = dmsh.Polygon([[h[0][i], h[1][i]] for i in range(len(h[0])-1)])
+                inner.append(hole)
 
+            if len(inner) > 1:
+                inner = dmsh.Union(inner)
+            elif inner == 1:
+                inner = inner[0]
+            else:
+                pass
 
-        #try to further optimize the mesh
-        try:
-            #optimize it with centroidal voronoi tesselation
-            self.mesh = dt.quasi_newton_uniform_full(X, cells, 1.0e-10, 100)
+            geo = dmsh.Difference(outer,inner)
 
-            # save as image
+            #inspect segment
+            plt.figure(figsize=(8, 8))
+            plt.axis('equal')
+            plt.plot(*segment.exterior.xy)
+            for int in segment.interiors:
+                plt.plot(*int.xy, color="red")
+            plt.savefig(str(i) + "_shape.jpg")
+            plt.close()
 
-            self.mesh.save(
-                "shape.png", show_coedges=False, show_axes=False, nondelaunay_edge_color="k",
-            )
+            #inspect geo
+            geo.save(str(i)+"_geo.jpg")
 
-        except meshplex.exceptions.MeshplexError as err:
-            print(err)
+            X, cells, edges = dmsh.generate(geo, edge_size=self.min_edge_size)
+
+            #try to further optimize the mesh
+            try:
+                #optimize it with centroidal voronoi tesselation
+                self.mesh = dt.quasi_newton_uniform_full(X, cells, 1.0e-10, 100)
+
+                # save as image
+
+                self.mesh.save(
+                    str(i)+"_mesh.png", show_coedges=False, show_axes=False, nondelaunay_edge_color="k",
+                )
+
+            except meshplex.exceptions.MeshplexError as err:
+                print(err)
 
 
         #TODO draw path and define distance function to path or figure out how this could be used automatically to make better knotworks
@@ -671,11 +760,6 @@ class Window(QMainWindow):
         self.meshArea.update()
         self.knotArea.update()
 
-
-
-    """
-    remove small contour details
-    """
 
 
     """
@@ -750,23 +834,50 @@ class Window(QMainWindow):
             self.meshArea.update()
             break
 
+    """
+            remove contour points that have the smallest inflection 
+            """
+    def remove_small_inflection_points(self):
 
-    def test_shape(self):
-        im = cv.imread(self.img_file)
-        edges = cv.Canny(im, 100,200)
+        points = self.contour_points.tolist()
 
-        self.img_file = "edges_" + os.path.basename(self.img_file)
-        self.display_img_file =  self.img_file
-        cv.imwrite(self.display_img_file, edges)
+        while True:
+            if len(points) < 3:
+                break
+            length = len(points)
 
-        self.imgArea.update()
+            i = 0
+            while i < len(points):
+                print(i, len(points))
+                # compute angle between three points, i.e degree of inflection for the midpoint
+                p1 = points[i]
+                p2 = points[(i + 1) % len(points)]
+                p3 = points[(i + 2) % len(points)]
+                p12 = np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+                p13 = np.sqrt((p1[0] - p3[0]) ** 2 + (p1[1] - p3[1]) ** 2)
+                p23 = np.sqrt((p2[0] - p3[0]) ** 2 + (p2[1] - p3[1]) ** 2)
+                angle = np.arccos((p12 ** 2 + p13 ** 2 - p23 ** 2) / (2 * p12 * p13))
+                print(p1, p2, p3, angle)
+                print(p12, p23)
+                if angle < self.contour_roughness and p12 < self.min_edge_size and p23 < self.min_edge_size:
+                    print("remove", p2)
+                    points.pop((i + 1) % len(points))
+                elif angle < self.contour_roughness:
+                    # if the inflection is high but the distance between the points is too small
+                    # TODO save the point to add a single vertex to the graph later (and maybe merge the two neighbor points)
+                    pass
+                i += 1
+            if length == len(points):
+                break
+
+        self.contour_points = np.array(points)
 
     def load_pic(self):
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
         self.img_file, _ = QFileDialog.getOpenFileName(self,"QFileDialog.getOpenFileName()", "","All Files (*);;Python Files (*.py)", options=options)
         self.display_img_file = self.img_file
-        self.button1.setText(self.img_file)
+        self.button1.setText(os.path.basename(self.img_file))
         self.contour_points = []
         self.imgArea.update()
 
