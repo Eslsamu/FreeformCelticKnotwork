@@ -4,9 +4,13 @@ import scipy.spatial
 import meshplex
 
 """
+Simple mesh generator inspired by distmesh
+author: nschloe
+dmsh : https://github.com/nschloe/dmsh
 
+edit: removed feature points and #TODO added image feature force
 """
-
+#TODO add image feature force
 
 def unique_rows(a):
     # The cleaner alternative `numpy.unique(a, axis=0)` is slow; cf.

@@ -3,7 +3,6 @@ from PyQt5.QtGui import QPainter, QPen, QPainterPath, QImage
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtWidgets import QWidget
 
-
 class KnotArea(QWidget):
 
     def __init__(self, parent):
@@ -32,8 +31,7 @@ class KnotArea(QWidget):
         self.qp.drawImage(self.rect(), self.background, self.background.rect())
 
         # draw the knot
-        if self.parent.display_knot:
-            self.draw_knot()
+        self.draw_knot()
 
         # adjust widget size based on loaded image
         img = self.parent.imgArea.image
@@ -44,13 +42,43 @@ class KnotArea(QWidget):
         self.qp.end()
 
     def draw_knot(self):
-        curves = compute_curves(self.parent.graph["vertices"], self.parent.graph["edges"])
-        for p0, p1, p2, p3 in curves:
-            path = QPainterPath(QPoint(p0[0], p0[1]))
-            path.cubicTo(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1])
-            self.qp.setPen(self.green_pen)
-            self.qp.drawPath(path)
-            if self.parent.display_control_points:
-                self.qp.setPen(self.red_pen)
-                self.qp.drawPoint(p1[0], p1[1])
-                self.qp.drawPoint(p2[0], p2[1])
+        if self.parent.meshtype_button.isChecked():
+            mesh = self.parent.quad_mesh
+        else:
+            mesh = self.parent.triangle_mesh
+
+        """
+        playing with colors
+        colors = [Qt.red,Qt.black,Qt.green,Qt.yellow]
+        """
+
+
+        if mesh is None:
+            return
+        for k, submesh in mesh.items():
+            curves = compute_curves(vertices = submesh.node_coords.tolist(),
+                                    edges = submesh.edges["nodes"].tolist(),
+                                    squish = self.parent.parameters["squish"]
+                                    )
+            for i in range(len(curves)):
+                p0, p1, p2, p3 = curves[i]
+                path = QPainterPath(QPoint(p0[0], p0[1]))
+
+                #TODO add brush for fill and pen for outline
+
+
+                path.cubicTo(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1])
+                self.qp.setPen(self.green_pen)
+
+                """
+                playing with colors
+                self.qp.setPen(QPen(colors[i % len(colors)], self.parent.knot_width / 2,
+                                    Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                """
+
+                self.qp.drawPath(path)
+                if self.parent.control_points_button:
+                    #self.qp.setPen(self.red_pen)
+                    self.qp.drawPoint(p1[0], p1[1])
+                    self.qp.drawPoint(p2[0], p2[1])
+

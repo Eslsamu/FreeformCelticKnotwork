@@ -32,9 +32,8 @@ class MeshArea(QWidget):
         self.qp.drawImage(self.rect(), self.background, self.background.rect())
 
         #draw the graph
-        if self.parent.display_graph:
-            self.qp.setPen(self.black_pen)
-            self.draw_graph()
+        self.qp.setPen(self.black_pen)
+        self.draw_graph()
 
 
         #mark the contour points
@@ -49,8 +48,45 @@ class MeshArea(QWidget):
             self.setMinimumWidth(img.width()*1.2)
             self.setMinimumHeight(img.height() * 1.2)
 
-
         self.qp.end()
+
+
+    def draw_graph(self, display_cell_quality = True, display_edges = False):
+        if self.parent.meshtype_button.isChecked():
+            mesh = self.parent.quad_mesh
+        else:
+            mesh = self.parent.triangle_mesh
+
+        if mesh is None:
+            return
+
+        for i, submesh in mesh.items():
+            cells = submesh.cells["nodes"]
+            nodes = submesh.node_coords
+
+            if display_edges is False:
+                for coords in nodes:
+                    point = QPoint(coords[0],coords[1])
+                    self.qp.drawPoint(point)
+            else:
+
+                for cell in cells:
+                    points = [QPoint(coords[cell[i]][0], coords[cell[i]][1]) for i in range(len(cell))]
+
+                    # draw the cell
+                    path = QPainterPath()
+                    path.moveTo(points[0])
+                    for j in range(1,len(points)):
+                        path.lineTo(points[j])
+                    path.closeSubpath()
+
+                    # fill the cell with color intensity based on the cell quality
+                    qual = submesh.cell_quality[i]
+                    if display_cell_quality:
+                        self.qp.setBrush(QBrush(QColor(0, 255, 0, int(qual * 255))))
+                    else:
+                        self.qp.setBrush(QBrush(QColor(0, 255, 0, 0)))
+                    self.qp.drawPath(path)
 
     def mousePressEvent(self, e):
         graph = self.parent.graph
@@ -105,74 +141,3 @@ class MeshArea(QWidget):
                     print("move vertex")
 
         self.update()
-
-    def draw_graph(self):
-        vertices = self.parent.graph["vertices"]
-        edges = self.parent.graph["edges"]
-        #draw vertices
-        for v in vertices:
-            # draw vertices
-            x = v[0]
-            y = v[1]
-            self.qp.drawPoint(x,y)
-        if self.parent.quad_mesh.get(0) is None:
-            return
-
-        if self.parent.button8.isChecked():
-            for i,mesh in self.parent.quad_mesh.items():
-                cells = mesh["cells"]
-                coords = mesh["node_coords"]
-                for ce in cells:
-                    a = QPoint(coords[ce[0]][0], coords[ce[0]][1])
-                    b = QPoint(coords[ce[1]][0], coords[ce[1]][1])
-                    c = QPoint(coords[ce[2]][0], coords[ce[2]][1])
-                    d = QPoint(coords[ce[3]][0], coords[ce[3]][1])
-
-                    # draw the cell
-                    path = QPainterPath()
-                    path.moveTo(a)
-                    path.lineTo(b)
-                    path.lineTo(c)
-                    path.lineTo(d)
-                    path.closeSubpath()
-                    path.moveTo(a)
-
-                    # fill the cell with color intensity based on the cell quality
-                    self.qp.setBrush(QBrush(QColor(0, 255, 0, 255)))
-                    self.qp.drawPath(path)
-
-
-        """
-        #draw edges
-        for e in edges:
-            #draw edge
-            v1 = vertices[e[0]]
-            v1 = QPoint(v1[0],v1[1])
-            v2 = vertices[e[1]]
-            v2 = QPoint(v2[0],v2[1])
-            self.qp.drawLine(v1,v2)
-        """
-
-
-    def draw_mesh(self):
-        for k, mesh in self.parent.triangle_mesh.items():
-            cells = mesh.cells["nodes"]
-            coords = mesh.node_coords
-
-            for i,n in enumerate(cells):
-                a = QPoint(coords[n[0]][0],coords[n[0]][1])
-                b = QPoint(coords[n[1]][0],coords[n[1]][1])
-                c = QPoint(coords[n[2]][0],coords[n[2]][1])
-
-                #draw the cell
-                path = QPainterPath()
-                path.moveTo(a)
-                path.lineTo(b)
-                path.lineTo(c)
-                path.closeSubpath()
-                path.moveTo(a)
-
-                # fill the cell with color intensity based on the cell quality
-                qual = mesh.cell_quality[i]
-                self.qp.setBrush(QBrush(QColor(0, 255, 0, 255 - int(qual * 255))))
-                self.qp.drawPath(path)
