@@ -4,7 +4,7 @@ import subprocess
 
 from PyQt5.QtWidgets import QWidget, QPushButton,\
     QApplication, QFileDialog, QGridLayout,  \
-    QSlider, QGroupBox, QLabel, QMainWindow, QScrollArea
+    QSlider, QGroupBox, QLabel, QMainWindow, QScrollArea, QComboBox
 
 
 from PyQt5.QtCore import Qt
@@ -18,7 +18,8 @@ from image_view import ImageArea
 from mesh_view import MeshArea
 from knot_view import KnotArea
 from segmentation import run_segmentation
-from meshing import mesh_segments, triangle2quad
+from meshing import mesh_segments
+from quad_conversion import triangle2quad_greedy
 
 
 """
@@ -38,19 +39,19 @@ class Window(QMainWindow):
     #data structures
     triangle_mesh = None
     quad_mesh = None
-    img_file = None
-    display_img_file = None
+    img_file = "test_images/shape/g.png"
+    display_img_file = "test_images/shape/g.png"
     contour_points = []
     segments = []
     processed_img = None
 
     #parameters
     parameters = {
-        "contour_roughness" : 1,
+        "contour_roughness" : 100,
         "blur" : 1,
         "squish" : 0.5,
         "canny_th" : 0.2,
-        "min_edge_size" : 50,
+        "min_edge_size" : 20,
         "alpha" : 0.5,
         "min_diameter" : 0,
         "min_arclength" : 0
@@ -62,6 +63,7 @@ class Window(QMainWindow):
         super().__init__()
         self.setGeometry(0, 0, 1000, 1000)
         self.init_ui()
+
 
 
     def init_ui(self):
@@ -232,6 +234,17 @@ class Window(QMainWindow):
         grid.addWidget(self.slider7, 1, 4)
         grid.addWidget(self.label7, 1, 5)
 
+        #combobox generator
+        self.generator_combobox = QComboBox()
+        self.generator_combobox.addItem("wavefront")
+        self.generator_combobox.addItem("dmsh")
+        grid.addWidget(self.generator_combobox, 2, 4)
+
+        # button 10
+        self.cvt_button = QPushButton("cvt smoothing")
+        self.cvt_button.setCheckable(True)
+        grid.addWidget(self.cvt_button, 3, 4)
+
         self.set_knot_width()
         self.set_selected_segment()
         self.set_squish()
@@ -309,7 +322,10 @@ class Window(QMainWindow):
     def run_meshing(self):
         if len(self.segments) == 0:
             self.run_segmentation()
-        self.triangle_mesh = mesh_segments(self.segments, self.parameters["min_edge_size"])
+        self.triangle_mesh = mesh_segments(self.segments,
+                                           self.parameters["min_edge_size"],
+                                           generator = self.generator_combobox.currentText(),
+                                           cvt = self.cvt_button.isChecked())
 
         self.meshArea.update()
 
@@ -333,64 +349,6 @@ class Window(QMainWindow):
         # draw all invalid contours
         for polygon in self.invalid_segments:
             plt.plot(*polygon.exterior.xy, color="yellow", linewidth=1)
-
-        #visualize wavefront on selected segment
-        ext = self.segments[self.selected_segment]["polygon"].exterior.xy
-        coords = [[ext[0][i], ext[1][i]] for i in range(len(ext[0]))]
-
-        from segmentation import regularize_contour
-        from meshing import wavefront_step
-        from shapely.geometry import Point, LineString
-        from scipy.spatial import distance_matrix
-
-        wavefront_init = regularize_contour(coords, self.parameters["min_edge_size"])
-
-        step = wavefront_step(wavefront_init, stepsize=20)
-
-        #merge vertices (only with vertices from same step otherwise delete new vertex
-        distances = distance_matrix(step,step)
-        np.fill_diagonal(distances, np.inf)
-        argmin = np.unravel_index(np.argmin(distances),distances.shape)
-        th = 15
-        i = 0
-        while distances[argmin[0]][argmin[1]] < th:
-            i+=1
-            a = step[argmin[0]]
-            b = step[argmin[1]]
-
-            merged = np.mean([a,b],axis=0)
-
-            step = np.delete(step,argmin,axis=0)
-            #print(argmin,a,b,merged, all_points)
-            step = np.append(step, [merged],axis=0)
-
-            distances = distance_matrix(step, step)
-            np.fill_diagonal(distances, np.inf)
-            argmin = np.unravel_index(np.argmin(distances), distances.shape)
-        print(i,"vertices merged")
-
-        #remove outside or too close to boundary
-        cleaned = []
-        too_close = []
-        boundary = LineString(wavefront_init)
-        for vertex in step:
-            if boundary.distance(Point(*vertex)) > th:
-                cleaned.append(vertex)
-            else:
-                too_close.append(vertex)
-        cleaned = np.array(cleaned)
-        too_close = np.array(too_close)
-        print("cleaned",len(cleaned))
-        #TODO remember gaps created by deleted or merged vertices
-
-        #form concave hull and let it be the new boundary
-
-        plt.scatter(wavefront_init[:, 0], wavefront_init[:, 1], color="green", linewidth=0.5, marker="X")
-        plt.scatter(cleaned[:,0],cleaned[:,1], color="blue", linewidth=0.5, marker="X")
-        plt.scatter(too_close[:, 0], too_close[:, 1], color="yellow", linewidth=0.5, marker="X")
-        #plt.scatter(*polygon1.exterior.xy, color="blue", linewidth=0.5, marker="X")
-        #plt.scatter(*polygon2.exterior.xy, color="green", linewidth=0.5, marker="X")
-        #plt.scatter(*polygon0.exterior.xy, color="yellow")
 
         # draw segments
         if len(self.segments) > 0:

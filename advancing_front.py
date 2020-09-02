@@ -1,9 +1,47 @@
-from shapely.geometry import Point, LineString, Polygon
+from shapely.geometry import Point, LineString, Polygon,MultiPoint
+from shapely.ops import triangulate
 from scipy.spatial import distance_matrix
+from segmentation import regularize_contour
 import numpy as np
 import matplotlib.pyplot as plt
 
-def advancing_front_meshing(seed, stepsize=20, th=4.5):
+def wavefront_meshing(polygon, edge_size):
+    # visualize wavefront on selected segment
+    ext = polygon.exterior.xy
+    coords = [[ext[0][i], ext[1][i]] for i in range(len(ext[0]))]
+
+    wavefront_init = regularize_contour(coords, edge_size)
+    front = advancing_front(wavefront_init,stepsize= edge_size,
+                                    min_step = edge_size/1.5)
+
+    triangles = triangulate(MultiPoint(front["node_coords"]))
+
+    """
+    keep = [np.column_stack(triangle.exterior.xy) for triangle in triangles if
+            triangle.within(self.segments[self.selected_segment]["polygon"])]
+    """
+
+    # triangles can leave the boundary as long as it is less than 1/4 of their area that is outside
+    keep = [np.column_stack(triangle.exterior.xy) for triangle in triangles if
+            triangle.intersection(polygon).area
+            > triangle.area / 4]
+
+    #convert coords into indices for triangles
+    indices = []
+    for tr in keep:
+        a = [i for i in range(len(front["node_coords"]))
+             if np.array_equal(front["node_coords"][i], tr[0])][0]
+        b = [i for i in range(len(front["node_coords"]))
+             if np.array_equal(front["node_coords"][i], tr[1])][0]
+        c = [i for i in range(len(front["node_coords"]))
+             if np.array_equal(front["node_coords"][i], tr[2])][0]
+        indices.append([a, b, c])
+    indices = np.array(indices)
+
+    return front["node_coords"], indices
+
+
+def advancing_front(seed, stepsize=20, min_step=4.5, graphic = False):
     front = {"node_coords": seed, "direction": wv_direction(seed), "it": np.zeros(len(seed))}
     boundary = LineString(seed)
     area = Polygon(seed)
@@ -12,12 +50,13 @@ def advancing_front_meshing(seed, stepsize=20, th=4.5):
     while True:
         current_coords = front["node_coords"][front["it"] == it]
         current_dir = front["direction"][front["it"] == it]
-        print(it)
+        print(it, len(current_coords))
 
-        plt.scatter(x=front["node_coords"][:, 0], y=front["node_coords"][:, 1])
-        plt.scatter(x=current_coords[:, 0], y=current_coords[:, 1], color="red", marker="X")
+        if graphic:
+            plt.scatter(x=front["node_coords"][:, 0], y=front["node_coords"][:, 1],linewidths=0.1)
+            plt.scatter(x=current_coords[:, 0], y=current_coords[:, 1], color="red", marker="X",linewidths=0.1)
 
-        if len(current_coords) == 0 or it == 8:
+        if len(current_coords) == 0:
             break
 
         # forward steps
@@ -34,12 +73,10 @@ def advancing_front_meshing(seed, stepsize=20, th=4.5):
         # remove new points outside or too close to boundary
         rm = []
         for i, vertex in enumerate(new_coords):
-            if boundary.distance(Point(*vertex)) < th or not area.contains(Point(*vertex)):
+            if boundary.distance(Point(*vertex)) < min_step or not area.contains(Point(*vertex)):
                 rm.append(i)
         new_coords = np.delete(new_coords, rm, axis=0)
         new_dir = np.delete(new_dir, rm, axis=0)
-
-        plt.scatter(x=new_coords[:, 0], y=new_coords[:, 1],color="yellow", marker="o")
 
         # add new coords to the wavefront
         front["node_coords"] = np.concatenate([front["node_coords"],
@@ -57,7 +94,7 @@ def advancing_front_meshing(seed, stepsize=20, th=4.5):
             argmin = np.unravel_index(np.argmin(distances), distances.shape)
 
             # stop merging when minimum distance between to nodes is less than th
-            if distances[argmin[0]][argmin[1]] > th:
+            if distances[argmin[0]][argmin[1]] > min_step:
                 break
 
             i = i + 1
@@ -81,9 +118,11 @@ def advancing_front_meshing(seed, stepsize=20, th=4.5):
             front["node_coords"] = np.append(front["node_coords"], [merged_coords], axis=0)
             front["direction"] = np.append(front["direction"], [merged_dir], axis=0)
             front["it"] = np.append(front["it"], [min(a_it, b_it)], axis=0)
-
-        plt.axis('scaled')
-        plt.show()
+        if graphic:
+            plt.scatter(x=new_coords[:, 0], y=new_coords[:, 1], color="yellow", marker="o")
+            plt.axis('scaled')
+            plt.savefig(str(it)+".png")
+            plt.close()
         it += 1
     return front
 
