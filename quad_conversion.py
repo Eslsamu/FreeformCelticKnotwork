@@ -5,21 +5,11 @@ from shapely.geometry import Point
 
 # paper: Automatic Conversion of Triangular Meshes Into Quadrilateral Meshes with Directionality
 # (slightly adapted)
-def triangle2quad_greedy(triangle_mesh, segments, alpha):
-    quad_mesh = {}
+def triangle_to_3_4_greedy(triangle_mesh, segments, alpha):
+    tri_quad_mesh = {}
     for k, submesh in triangle_mesh.items():
         cells = submesh.cells["nodes"]
         node_coords = submesh.node_coords
-
-        """
-        test
-
-        cells = [np.array([0,1,3]),np.array([1,3,4]),np.array([1,4,2]),np.array([4,5,2]),
-                     np.array([3,4,6]),np.array([6,7,4]),np.array([4,5,7]),np.array([5,7,8])]
-        node_coords = [np.array([100,100]),np.array([150,100]),np.array([200,100]),
-                       np.array([100,150]),np.array([150,150]),np.array([200,150]),
-                       np.array([100,200]),np.array([150,200]),np.array([200,200])]
-         """
 
         # find neighbor cells of each cell
         neighbors = {}
@@ -80,22 +70,32 @@ def triangle2quad_greedy(triangle_mesh, segments, alpha):
             else:
                 chosen_quads.append(quad)
 
+        # triangles that are left over and can't be converted to quads
+        remaining_triangles = []
+        for triangle in cells:
+            if not next((True for elem in taken_triangles if np.array_equal(elem, triangle)), False):
+                coords = [node_coords[node] for node in triangle]
+                taken_triangles.append(triangle)
+                remaining_triangles.append(
+                    {"nodes": triangle, "coords": coords, "qual": 0, "triangles": [triangle]})
+
         #store cells
         cells = [quad["nodes"] for quad in chosen_quads]
-
+        cells.extend([triangle["nodes"] for triangle in remaining_triangles])
         #store cell quality
         qual = [quad["qual"] for quad in chosen_quads]
+        qual.extend([triangle["qual"] for triangle in remaining_triangles])
 
         #compute edges
         edges = edges_from_cells(cells)
 
         #store submesh
-        quad_mesh[k] = QuadMesh(node_coords,
+        tri_quad_mesh[k] = Tri_Quad_Mesh(node_coords,
                                 cells= cells,
                                 cell_quality = qual,
                                 edges = edges
                                 )
-    return quad_mesh
+    return tri_quad_mesh
 
 #standard deviation of egde lengths
 def geometric_irregularity(nodes, mode = "min-angle"):
@@ -131,22 +131,12 @@ def directionality_error(nodes, polygon):
 
     return np.mean(angles) / ( 0.5 * np.pi)
 
-
-def triangle2quad_cameron(triangle_mesh, segments, th):
-    quad_mesh = {}
+#automatic font decoration
+def triangle_to_3_4_browne(triangle_mesh, th=0.7):
+    tri_quad_mesh = {}
     for k, submesh in triangle_mesh.items():
         cells = submesh.cells["nodes"]
         node_coords = submesh.node_coords
-
-        """
-        test
-
-        cells = [np.array([0,1,3]),np.array([1,3,4]),np.array([1,4,2]),np.array([4,5,2]),
-                     np.array([3,4,6]),np.array([6,7,4]),np.array([4,5,7]),np.array([5,7,8])]
-        node_coords = [np.array([100,100]),np.array([150,100]),np.array([200,100]),
-                       np.array([100,150]),np.array([150,150]),np.array([200,150]),
-                       np.array([100,200]),np.array([150,200]),np.array([200,200])]
-         """
 
         # find neighbor cells of each cell
         neighbors = {}
@@ -163,111 +153,152 @@ def triangle2quad_cameron(triangle_mesh, segments, th):
                         except KeyError:
                             neighbors[str(triangle)] = [other_triangle]
 
-        # find all possible quads and compute their quality
-        taken_quads = []
         taken_triangles = []
-        for triangle in cells:
 
+        # find all optimal quads
+        optimal_quads = []
+        for triangle in cells:
             try:
                 # check if cell has any neighbors
                 for neighbor in neighbors[str(triangle)]:
-                    # form new quad
-                    dist_node1 = [node for node in neighbor if node not in triangle][0]
-                    dist_node2 = [node for node in triangle if node not in neighbor][0]
-                    shrd_nodes = [node for node in triangle if node in neighbor]
-                    # order the nodes correctly
-                    nodes = [dist_node1, shrd_nodes[0], dist_node2, shrd_nodes[1]]
                     if not next((True for elem in taken_triangles if np.array_equal(elem, triangle)), False) \
                             and not next((True for elem in taken_triangles if np.array_equal(elem, neighbor)), False):
+                        # form new quad
+                        dist_node1 = [node for node in neighbor if node not in triangle][0]
+                        dist_node2 = [node for node in triangle if node not in neighbor][0]
+                        shared_nodes = [node for node in triangle if node in neighbor]
+                        # order the nodes correctly
+                        nodes = [dist_node1, shared_nodes[0], dist_node2, shared_nodes[1]]
                         coords = [node_coords[node] for node in nodes]
-                        if is_optimal_quad(coords):
-                            taken_quads.append(QuadMesh({"nodes": nodes, "coords": coords,
-                              "qual": 1, "triangles": [triangle, neighbor]}))
+                        mid_vec = node_coords[shared_nodes[0]] - node_coords[shared_nodes[1]]
+                        if is_optimal_quad(coords,mid_vec):
+                            optimal_quads.append({"nodes": nodes, "coords": coords,
+                              "qual": 1, "triangles": [triangle, neighbor]})
+                            taken_triangles.append(triangle)
+                            taken_triangles.append(neighbor)
+
 
             except KeyError:  # skip if triangle has no neighbors (will remove cell from resulting mesh)
                 #TODO keep it as single triangle
                 continue
 
-def is_optimal_quad(coords,th):
-    pass
+        # find all good quads
+        good_quads = []
+        for triangle in cells:
+            try:
+                # check if cell has any neighbors
+                for neighbor in neighbors[str(triangle)]:
 
-#th should be ~ 0.5 to 1.5
-def is_good_quad(coords, th):
-    vec = np.array([coords[i]-coords[i-1] for i in range(len(coords))])
-    a = np.array([angle(vec[i],vec[(i-1)]) for i in range(len(vec))])
+                    if not next((True for elem in taken_triangles if np.array_equal(elem, triangle)), False) \
+                            and not next((True for elem in taken_triangles if np.array_equal(elem, neighbor)),
+                                         False):
+                        # form new quad
+                        dist_node1 = [node for node in neighbor if node not in triangle][0]
+                        dist_node2 = [node for node in triangle if node not in neighbor][0]
+                        shrd_nodes = [node for node in triangle if node in neighbor]
+                        # order the nodes correctly
+                        nodes = [dist_node1, shrd_nodes[0], dist_node2, shrd_nodes[1]]
+                        coords = [node_coords[node] for node in nodes]
+                        qual = quad_qual(coords)
+                        if qual > th:
+                            good_quads.append({"nodes": nodes, "coords": coords,
+                                                           "qual": qual, "triangles": [triangle, neighbor]})
+                            taken_triangles.append(triangle)
+                            taken_triangles.append(neighbor)
+
+            except KeyError:  # skip if triangle has no neighbors (will remove cell from resulting mesh)
+                # TODO keep it as single triangle
+                continue
+
+        #triangles that are left over and can't be converted to quads
+        remaining_triangles = []
+        for triangle in cells:
+            if not next((True for elem in taken_triangles if np.array_equal(elem, triangle)), False):
+                coords = [node_coords[node] for node in triangle]
+                taken_triangles.append(triangle)
+                remaining_triangles.append({"nodes": triangle,"coords": coords, "qual":0, "triangles": [triangle]})
+
+        # store cells
+        cells = [quad["nodes"] for quad in optimal_quads]
+        cells.extend([quad["nodes"] for quad in good_quads])
+        cells.extend([triangle["nodes"] for triangle in remaining_triangles])
+
+        # store cell quality
+        qual = [quad["qual"] for quad in optimal_quads]
+        qual.extend([quad["qual"] for quad in good_quads])
+        qual.extend([triangle["qual"] for triangle in remaining_triangles])
+
+        # compute edges
+        edges = edges_from_cells(cells)
+
+        # store submesh
+        tri_quad_mesh[k] = Tri_Quad_Mesh(node_coords,
+                                         cells=cells,
+                                         cell_quality=qual,
+                                         edges=edges
+                                         )
+    return tri_quad_mesh
+
+
+#ask if this makes sense, because it allows quads to be really skewed (or does delaunay discourage that?)
+def is_optimal_quad(coords, mid_vec):
+    vec = np.array([coords[i] - coords[i - 1] for i in range(len(coords))])
     length = np.array([np.linalg.norm([v]) for v in vec])
-
-    qual = np.sum([np.abs(a - np.pi/2)/(np.pi/2) + np.abs(length - np.mean(length))/np.mean(length)])
-    print(qual)
-    print(vec, a, length)
-    if qual < th:
+    mid_length = np.linalg.norm([mid_vec])
+    if np.max(length) < mid_length:
         return True
     else:
         return False
 
-def main():
-    q = is_good_quad(np.array([[0,0],[-0.5,1],[1,1],[1,0]]),0.9)
-    print(q)
-if __name__ == '__main__':
-    main()
+#th should be ~ 0.7 to 0.9
+def quad_qual(coords):
+    vec = np.array([coords[i]-coords[i-1] for i in range(len(coords))])
+    a = np.array([angle(vec[i],vec[(i-1)]) for i in range(len(vec))])
+    length = np.array([np.linalg.norm([v]) for v in vec])
 
-class QuadMesh:
+    qual = 1-np.sum([np.abs(a - np.pi/2)/(np.pi/2) + np.abs(length - np.mean(length))/np.mean(length)])/8
+
+    return qual
+
+class Tri_Quad_Mesh:
     def __init__(self, node_coords=None, cells=None, cell_quality=None, edges=None):
         self.cells = {"nodes": cells}
         self.node_coords = node_coords
         self.cell_quality = cell_quality
         self.edges = {"nodes": edges}
 
+def main():
+    """
+   test
+
+   cells = [np.array([0,1,3]),np.array([1,3,4]),np.array([1,4,2]),np.array([4,5,2]),
+                np.array([3,4,6]),np.array([6,7,4]),np.array([4,5,7]),np.array([5,7,8])]
+   node_coords = [np.array([100,100]),np.array([150,100]),np.array([200,100]),
+                  np.array([100,150]),np.array([150,150]),np.array([200,150]),
+                  np.array([100,200]),np.array([150,200]),np.array([200,200])]
+    """
+    from scipy.spatial import Delaunay
+    from shapely.ops import triangulate
+    from shapely.geometry import MultiPoint
+
+    node_coords = [np.array([100,100]),np.array([150,100]),np.array([200,100]),
+                  np.array([100,150]),np.array([150,150]),np.array([200,150]),
+                  np.array([100,200]),np.array([150,200]),np.array([170,170])]
+    cells = Delaunay(node_coords).simplices
+    test = {0:Tri_Quad_Mesh(
+        node_coords=node_coords,
+        cells=cells
+    )}
+    q = triangle_to_3_4_browne(test,th=0.8)
+    print(q.get(0).cells)
+
+if __name__ == '__main__':
+    main()
 
 
 
 
 
 
-#quadrileteral mesh smoothing
-#TODO first
-def smooth_quads(quad_mesh, eps):
-    mesh = QuadMesh(np.array()) #example mesh for testing
-    old_pos = None
 
-    while True:
-        if (old_pos - mesh.node_coords.copy()) < eps:
-            break
-        """
-        #compute desired length
-        edges_vec = mesh.node_coords[edges[:, 1]] - mesh.node_coords[edges[:, 0]]
-        edge_lengths = np.sqrt(numpy.einsum("ij,ij->i", edges_vec, edges_vec))
-        edges_vec /= edge_lengths[..., None]
 
-        # Evaluate element sizes at edge midpoints
-        edge_midpoints = (
-                                 mesh.node_coords[edges[:, 1]] + mesh.node_coords[edges[:, 0]]
-                         ) / 2
-        p = edge_size_function(edge_midpoints.T)
-        desired_lengths = (
-                f_scale
-                * p
-                * numpy.sqrt(numpy.dot(edge_lengths, edge_lengths) / numpy.dot(p, p))
-        )
-
-        force_abs = desired_lengths - edge_lengths
-        # only consider repulsive forces
-        force_abs[force_abs < 0.0] = 0.0
-
-        # force vectors
-        force = edges_vec * force_abs[..., None]
-
-        # bincount replacement for the slow numpy.add.at
-        # more speed-up can be achieved if the weights were contiguous in memory, i.e.,
-        # if force[k] was used
-        n = mesh.node_coords.shape[0]
-        force_per_node = numpy.array(
-            [
-                numpy.bincount(edges[:, 0], weights=-force[:, k], minlength=n)
-                + numpy.bincount(edges[:, 1], weights=+force[:, k], minlength=n)
-                for k in range(force.shape[1])
-            ]
-        ).T
-
-        update = delta_t * force_per_node
-        """

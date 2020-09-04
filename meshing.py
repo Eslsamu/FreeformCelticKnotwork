@@ -38,7 +38,7 @@ def mesh_segments(segments, edge_size, generator, cvt = False):
         if generator == "dmsh":
             geo = polygon2geo(polygon)
             # inspect geo
-            geo.save(str(i) +".png")
+            #geo.save(str(i) +".png")
             X, cells = distmesh.generate(geo, edge_size=edge_size, verbose = False)
             print("nodes", X.shape, "cells", cells.shape)
         elif generator == "wavefront":
@@ -90,7 +90,6 @@ def polygon2geo(polygon):
     else:
         geo = outer
     return geo
-
 
 
 

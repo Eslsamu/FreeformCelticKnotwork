@@ -19,7 +19,7 @@ from mesh_view import MeshArea
 from knot_view import KnotArea
 from segmentation import run_segmentation
 from meshing import mesh_segments
-from quad_conversion import triangle2quad_greedy
+from quad_conversion import triangle_to_3_4_greedy, triangle_to_3_4_browne
 
 
 """
@@ -30,7 +30,7 @@ class Window(QMainWindow):
 
     #display
     #TODO change to toggle
-    knot_width = 3
+    knot_width = 10
     vertex_width = 10
     display_contour_points = False
     display_control_points = False
@@ -38,9 +38,9 @@ class Window(QMainWindow):
 
     #data structures
     triangle_mesh = None
-    quad_mesh = None
-    img_file = "test_images/shape/g.png"
-    display_img_file = "test_images/shape/g.png"
+    tri_quad_mesh = None
+    img_file = "test_images/shape/circle.png"
+    display_img_file = "test_images/shape/circle.png"
     contour_points = []
     segments = []
     processed_img = None
@@ -51,10 +51,11 @@ class Window(QMainWindow):
         "blur" : 1,
         "squish" : 0.5,
         "canny_th" : 0.2,
-        "min_edge_size" : 20,
+        "min_edge_size" : 100,
         "alpha" : 0.5,
         "min_diameter" : 0,
-        "min_arclength" : 0
+        "min_arclength" : 0,
+        "join_th" : 0.6
     }
 
 
@@ -186,7 +187,7 @@ class Window(QMainWindow):
         self.slider3.setValue(self.knot_width)
         # slider value label
         self.label3 = QLabel()
-        self.slider3.valueChanged.connect(self.set_params)
+        self.slider3.valueChanged.connect(self.set_knot_width)
         grid.addWidget(self.slider3,2,2)
         grid.addWidget(self.label3,2,3)
 
@@ -225,7 +226,7 @@ class Window(QMainWindow):
 
         # slider squish
         self.slider7 = QSlider(Qt.Horizontal)
-        self.slider7.setRange(0, 10)
+        self.slider7.setRange(1, 10)
         self.slider7.setSingleStep(1)
         self.slider7.setValue(self.parameters["squish"] * 10)
         # slider value label
@@ -238,12 +239,65 @@ class Window(QMainWindow):
         self.generator_combobox = QComboBox()
         self.generator_combobox.addItem("wavefront")
         self.generator_combobox.addItem("dmsh")
-        grid.addWidget(self.generator_combobox, 2, 4)
+        grid.addWidget(self.generator_combobox, 4, 4)
 
-        # button 10
+        # button 11
         self.cvt_button = QPushButton("cvt smoothing")
         self.cvt_button.setCheckable(True)
         grid.addWidget(self.cvt_button, 3, 4)
+
+        # button 12
+        self.display_edge_button = QPushButton("display edges")
+        self.display_edge_button.setCheckable(True)
+        grid.addWidget(self.display_edge_button, 4, 5)
+
+        # button 13
+        self.knot_screenshot_button = QPushButton("save knot")
+        self.knot_screenshot_button.clicked.connect(self.knotArea.take_screenshot)
+        grid.addWidget(self.knot_screenshot_button, 3, 5)
+
+        # slider scale
+        self.scale_slider = QSlider(Qt.Horizontal)
+        self.scale_slider.setRange(1, 10)
+        self.scale_slider.setSingleStep(1)
+        self.scale_slider.setValue(1)
+        # slider value label
+        self.scale_label = QLabel()
+        self.scale_label.setText("knot scale 1")
+        self.scale_slider.valueChanged.connect(
+            lambda : self.scale_label.setText("knot scale "+str(self.scale_slider.value())))
+        grid.addWidget(self.scale_slider, 2, 4)
+        grid.addWidget(self.scale_label, 2, 5)
+
+        # slider knot progression
+        self.knot_progression_slider = QSlider(Qt.Horizontal)
+        self.knot_progression_slider.setRange(0, 500)
+        self.knot_progression_slider.setSingleStep(1)
+        self.knot_progression_slider.setValue(500)
+        # slider value label
+        self.knot_progression_label = QLabel()
+        self.knot_progression_label.setText("knot progression")
+        self.knot_progression_slider.valueChanged.connect(
+            lambda: self.knot_progression_label.setText("knot progression " + str(self.knot_progression_slider.value())))
+        grid.addWidget(self.knot_progression_slider, 4, 0)
+        grid.addWidget(self.knot_progression_label, 4, 1)
+
+        # combobox converter
+        self.converter_combobox = QComboBox()
+        self.converter_combobox.addItem("greedy")
+        self.converter_combobox.addItem("browne")
+        grid.addWidget(self.converter_combobox, 0, 6)
+
+        # slider alpha
+        self.join_th_slider = QSlider(Qt.Horizontal)
+        self.join_th_slider.setRange(0, 10)
+        self.join_th_slider.setSingleStep(1)
+        self.join_th_slider.setValue(self.parameters["join_th"] * 10)
+        # slider value label
+        self.join_th_label = QLabel()
+        self.join_th_slider.valueChanged.connect(self.set_params)
+        grid.addWidget(self.join_th_slider, 1, 6)
+        grid.addWidget(self.join_th_label, 1, 7)
 
         self.set_knot_width()
         self.set_selected_segment()
@@ -290,6 +344,9 @@ class Window(QMainWindow):
         self.parameters["alpha"] = self.slider6.value() / 10
         self.label6.setText("direction vs regularity " + str(self.parameters["alpha"]))
 
+        self.parameters["join_th"] = self.join_th_slider.value() / 10
+        self.join_th_label.setText("join triangle th" + str(self.parameters["join_th"]))
+
     def show_contour_points(self):
         self.display_contour_points = not self.display_contour_points
         if self.display_contour_points:
@@ -326,13 +383,17 @@ class Window(QMainWindow):
                                            self.parameters["min_edge_size"],
                                            generator = self.generator_combobox.currentText(),
                                            cvt = self.cvt_button.isChecked())
-
+        self.knot_progression_slider.setRange(0,int(len(self.triangle_mesh.get(0).node_coords)*5))
         self.meshArea.update()
 
     def run_quad_conversion(self):
         print("convert to quads")
-        self.quad_mesh = triangle2quad(self.triangle_mesh, self.segments, self.parameters["alpha"])
-
+        #self.tri_quad_mesh = triangle2quad(self.triangle_mesh, self.segments, self.parameters["alpha"])
+        if self.converter_combobox.currentText() == "greedy":
+            self.tri_quad_mesh = triangle_to_3_4_greedy(self.triangle_mesh,
+                                                        segments = self.segments, alpha=self.parameters["alpha"])
+        if self.converter_combobox.currentText() == "browne":
+            self.tri_quad_mesh = triangle_to_3_4_browne(self.triangle_mesh, th=self.parameters["join_th"])
         self.meshtype_button.setChecked(True)
         print("finished conversion")
         self.update()
@@ -384,8 +445,12 @@ class Window(QMainWindow):
         self.display_img_file = self.img_file
         self.button1.setText(os.path.basename(self.img_file))
         self.triangle_mesh = None
+        self.tri_quad_mesh = None
         self.processed_img = None
+        self.segments = []
         self.imgArea.update()
+        self.meshArea.update()
+        self.knotArea.update()
 
     def grabcut(self):
         subprocess.run(['python3 grab_cut.py \"' + self.img_file + '\"'], shell=True)
@@ -401,6 +466,7 @@ def main():
     import faulthandler
     faulthandler.enable()
     sys.exit(app.exec_())
+    window.run_meshing()
 
 if __name__ == '__main__':
     main()

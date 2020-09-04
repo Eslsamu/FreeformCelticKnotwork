@@ -24,6 +24,7 @@ class MeshArea(QWidget):
         self.red_pen = QPen(Qt.red, self.vertex_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         self.green_pen = QPen(Qt.green, self.vertex_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
 
+
     """
     Method called when a painting event occurs.
     """
@@ -38,7 +39,7 @@ class MeshArea(QWidget):
 
         #mark the contour points
         if self.parent.display_contour_points:
-            for x, y in self.parent.boundary_points[self.parent.selected_segment]:
+            for x, y in self.parent.contour_points[self.parent.selected_segment]:
                 self.qp.setPen(self.green_pen)
                 self.qp.drawPoint(x,y)
 
@@ -51,9 +52,9 @@ class MeshArea(QWidget):
         self.qp.end()
 
 
-    def draw_graph(self, display_cell_quality = True, display_edges = False):
+    def draw_graph(self, display_cell_quality = True):
         if self.parent.meshtype_button.isChecked():
-            mesh = self.parent.quad_mesh
+            mesh = self.parent.tri_quad_mesh
         else:
             mesh = self.parent.triangle_mesh
 
@@ -64,14 +65,13 @@ class MeshArea(QWidget):
             cells = submesh.cells["nodes"]
             nodes = submesh.node_coords
 
-            if display_edges is False:
-                for coords in nodes:
-                    point = QPoint(coords[0],coords[1])
-                    self.qp.drawPoint(point)
-            else:
+            for coords in nodes:
+                point = QPoint(coords[0],coords[1])
+                self.qp.drawPoint(point)
 
+            if self.parent.display_edge_button.isChecked():
                 for cell in cells:
-                    points = [QPoint(coords[cell[i]][0], coords[cell[i]][1]) for i in range(len(cell))]
+                    points = [QPoint(nodes[cell[i]][0], nodes[cell[i]][1]) for i in range(len(cell))]
 
                     # draw the cell
                     path = QPainterPath()

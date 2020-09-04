@@ -50,10 +50,10 @@ def advancing_front(seed, stepsize=20, min_step=4.5, graphic = False):
     while True:
         current_coords = front["node_coords"][front["it"] == it]
         current_dir = front["direction"][front["it"] == it]
-        print(it, len(current_coords))
+        print("advancing",it, len(current_coords))
 
         if graphic:
-            plt.scatter(x=front["node_coords"][:, 0], y=front["node_coords"][:, 1],linewidths=0.1)
+            plt.scatter(x=front["node_coords"][:, 0], y=front["node_coords"][:, 1],color="black",linewidths=0.1)
             plt.scatter(x=current_coords[:, 0], y=current_coords[:, 1], color="red", marker="X",linewidths=0.1)
 
         if len(current_coords) == 0:
@@ -61,7 +61,6 @@ def advancing_front(seed, stepsize=20, min_step=4.5, graphic = False):
 
         # forward steps
         fd_step, fd_dir = wv_fd(current_coords, current_dir, stepsize)
-
         # side steps
         left_step, left_dir = wv_left(current_coords, current_dir, stepsize)
         right_step, right_dir = wv_right(current_coords, current_dir, stepsize)
@@ -69,6 +68,14 @@ def advancing_front(seed, stepsize=20, min_step=4.5, graphic = False):
         # new coords
         new_coords = np.concatenate([fd_step, left_step, right_step], axis=0)
         new_dir = np.concatenate([fd_dir, left_dir, right_dir], axis=0)
+
+        if graphic:
+            plt.scatter(x=fd_step[:, 0], y=fd_step[:, 1], color="blue", marker="o")
+            plt.scatter(x=right_step[:, 0], y=right_step[:, 1], color="magenta", marker="o")
+            plt.scatter(x=left_step[:, 0], y=left_step[:, 1], color="magenta", marker="o")
+            plt.axis('scaled')
+            plt.savefig(str(it) + "_steps.png")
+            plt.close()
 
         # remove new points outside or too close to boundary
         rm = []
@@ -87,6 +94,7 @@ def advancing_front(seed, stepsize=20, min_step=4.5, graphic = False):
                                       np.ones(len(new_coords)) * it + 1], axis=0)
 
         i = 0
+        print("merging")
         # merge nodes which are too close
         while True:
             distances = distance_matrix(front["node_coords"], front["node_coords"])
@@ -118,10 +126,11 @@ def advancing_front(seed, stepsize=20, min_step=4.5, graphic = False):
             front["node_coords"] = np.append(front["node_coords"], [merged_coords], axis=0)
             front["direction"] = np.append(front["direction"], [merged_dir], axis=0)
             front["it"] = np.append(front["it"], [min(a_it, b_it)], axis=0)
+        print(i,"merged")
         if graphic:
-            plt.scatter(x=new_coords[:, 0], y=new_coords[:, 1], color="yellow", marker="o")
+            plt.scatter(x=front["node_coords"][:, 0], y=front["node_coords"][:, 1], color="yellow", marker="o")
             plt.axis('scaled')
-            plt.savefig(str(it)+".png")
+            plt.savefig(str(it)+"_end.png")
             plt.close()
         it += 1
     return front
@@ -131,20 +140,28 @@ def wv_direction(seed):
     x = seed[:, 0]
     y = seed[:, 1]
 
-    vec_x = np.diff(x,prepend=x[-1])
-    rev_vec_y = np.diff(y,prepend=y[-1]) * -1
-
+    vec_x = np.roll(x,1)-np.roll(x,-1)
+    rev_vec_y = np.roll(y,-1)-np.roll(y,1)
     distances = np.linalg.norm([vec_x,rev_vec_y],axis=0)
-
-    uv_x = np.divide(vec_x, distances, out= np.zeros_like(vec_x), where=distances != 0) * -1
-    uv_y = np.divide(rev_vec_y, distances, out=np.zeros_like(rev_vec_y), where=distances != 0) * -1
+    uv_x = np.divide(vec_x, distances, out= np.zeros_like(vec_x), where=distances != 0)
+    uv_y = np.divide(rev_vec_y, distances, out=np.zeros_like(rev_vec_y), where=distances != 0)
 
     direction = np.column_stack([uv_y, uv_x])
     return direction
 
+def main():
+    dir=wv_direction(np.array([[0,0],[3,0],[1.5,3]]))
+    print(dir)
+
+
+
+if __name__ == '__main__':
+    main()
+
 #wavefront forward step
 #(x2 +- u(y1-y2) * (1/l), y2 +- u(x2-x1) * (1/l)) --> xy3 in right angled, regular triangle
 #returns new coordinates and direction
+#TODO take both neighbor nodes into account
 def wv_fd(seed, direction, stepsize):
     x = seed[:, 0]
     y = seed[:, 1]
@@ -177,14 +194,3 @@ def wv_right(seed, direction, stepsize):
     new_y = y + uv_y_r * stepsize
     return np.column_stack([new_x, new_y]),np.column_stack([uv_x_r, uv_y_r])
 
-def main():
-    from segmentation import regularize_contour
-    seed = np.array([[0,0],[0,5],[2,6],[5,6],[5,4],[3,2],[5,1],[5,0]])
-    wavefront_init = regularize_contour(seed, 1)
-
-    front=advancing_front_meshing(wavefront_init,1,th=0.6)
-    plt.scatter(x=front["node_coords"][:, 0], y=front["node_coords"][:, 1])
-    plt.axis('scaled')
-    plt.show()
-if __name__ == '__main__':
-    main()

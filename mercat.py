@@ -4,33 +4,29 @@ def midpoint(v1,v2):
     return (v1[0]+v2[0])/2 , (v1[1]+v2[1])/2
 
 
-"""
-Computing bezier curves on a graph using the Mercat Algorithm
-(angle starts counterclockwise)
-"""
-def compute_curves(vertices, edges, squish=0.5):
-    nodes = []
-    for e in edges:
-        nodes.extend([(e, np.pi * 3 / 4), (e, np.pi * 7 / 4), (e, np.pi / 4), (e, np.pi * 5 / 4)])
-    curves = []
+def get_node_order(vertices, edges, nodes):
+    current_thread = 0
+    sorted_threads = {current_thread:[]}
+    next_start_node = nodes.pop(0)
     while True:
         if len(nodes) == 0:
-            return curves
+            return sorted_threads
 
-        curr_node = nodes.pop(0)
-        curr_edge = curr_node[0]
-        curr_dir = curr_node[1]
+        #print(len(sorted_nodes),len(nodes))
+        start_node = next_start_node
+        start_edge = start_node[0]
+        start_dir = start_node[1]
 
         # determine which junction the node faces
-        if curr_dir < np.pi / 2 or curr_dir > 3 * np.pi / 2:
-            facing_junction = curr_edge[0]
-            opp_junction = curr_edge[1]
+        if start_node[2]:
+            facing_junction = start_edge[0]
+            opp_junction = start_edge[1]
         else:
-            facing_junction = curr_edge[1]
-            opp_junction = curr_edge[0]
+            facing_junction = start_edge[1]
+            opp_junction = start_edge[0]
 
         # get all adjecent edges on this junction/vertex
-        adj_edges = [edge for edge in edges if (facing_junction in edge) & (edge != curr_edge)]
+        adj_edges = [edge for edge in edges if (facing_junction in edge) & (edge != start_edge)]
 
         junc_x, junc_y = vertices[facing_junction]
         opp_x, opp_y = vertices[opp_junction]
@@ -38,10 +34,10 @@ def compute_curves(vertices, edges, squish=0.5):
         # angles of adjacent edges
         angles = []
 
-        #in case there are no other adjacent edges to the junction -> curve to the same edge
+        # in case there are no other adjacent edges to the junction -> curve to the same edge
         if len(adj_edges) == 0:
-            next_edge = curr_edge
-        #else curve to next adjacent edge
+            end_edge = start_edge
+        # else curve to next adjacent edge
         else:
             for adj_e in adj_edges:
                 v2 = vertices[[v for v in adj_e if v != facing_junction][0]]
@@ -57,117 +53,176 @@ def compute_curves(vertices, edges, squish=0.5):
                 if angle < 0:
                     angle += 2 * np.pi
                 # take the clockwise angle if nodes are on the left side facing the junction
-                if curr_dir == np.pi / 4 or curr_dir == np.pi * 5 / 4:
+                if start_dir == np.pi / 4 or start_dir == np.pi * 5 / 4:
                     angle = 2 * np.pi - angle
-
                 angles.append(angle)
 
             i_shortest_angle = np.argmin(angles)
-            next_edge = adj_edges[i_shortest_angle]
-
-            # if the shortest angle is less than 180 degrees, the nodes face each other
-            facing_nodes = False
-            if angles[i_shortest_angle] < 0:
-                facing_nodes = True
-
+            end_edge = adj_edges[i_shortest_angle]
+        #print("adj", adj_edges)
+        #print("angles", angles)
         # determine the direction of the next edge
         # if both edges face the same direction then
-        if facing_junction == next_edge[0]:
+        if facing_junction == end_edge[0]:
             # take the node of the other edge's opposite side of the same node direction
-            if curr_dir == np.pi / 4 or curr_dir == np.pi * 5 / 4:
-                next_dir = np.pi * 7 / 4
-            elif curr_dir == np.pi * 3 / 4 or curr_dir == np.pi * 7 / 4:
-                next_dir = np.pi / 4
+            if np.isclose(start_dir, np.pi / 4, atol=0.1)  or np.isclose(start_dir, np.pi * 5 / 4,atol=0.1):
+                end_dir = np.pi * 7 / 4
+            elif  np.isclose(start_dir, np.pi * 3 / 4,atol=0.1) or np.isclose(start_dir, np.pi * 7 / 4,atol=0.1) :
+                end_dir = np.pi / 4
         else:  # else take the node of the same side for the opposite direction
-            if curr_dir == np.pi / 4 or curr_dir == np.pi * 5 / 4:
-                next_dir = np.pi * 3 / 4
-            elif curr_dir == np.pi * 7 / 4 or curr_dir == np.pi * 3 / 4:
-                next_dir = np.pi * 5 / 4
+            if  np.isclose(start_dir, np.pi / 4,atol=0.1)  or  np.isclose(start_dir, np.pi * 5 / 4,atol=0.1):
+                end_dir = np.pi * 3 / 4
+            elif  np.isclose(start_dir, np.pi * 7 / 4,atol=0.1)  or  np.isclose(start_dir, np.pi * 3 / 4,atol=0.1) :
+                end_dir = np.pi * 5 / 4
 
         try:
-            next_node = [node for node in nodes if (next_edge == node[0]) & (next_dir == node[1])]
-            next_node = next_node[0]
+            end_node_i = [j for j in range(len(nodes)) if (end_edge == nodes[j][0]) & (end_dir == nodes[j][1])][0]
+            end_node = nodes.pop(end_node_i)
+            #store angle between two nodes
+            end_node[3] = np.min(angles)
+            start_node[3] = end_node[3]
         except IndexError:
-            print("edges",edges)
-            print("next edge", next_edge)
-            print("next dir", next_dir)
-            print("node", nodes)
-            print("")
+            #start a new thread if the next node was already used
+            next_start_node = nodes.pop(0)
+            current_thread += 1
+            sorted_threads[current_thread] = []
             continue
 
-        # determine anchor points of bezier curve
-        x1, y1 = midpoint(vertices[curr_edge[0]], vertices[curr_edge[1]])
-        x2, y2 = midpoint(vertices[next_edge[0]], vertices[next_edge[1]])
+        #print("start",start_node)
+        #print("end", end_node)
+        sorted_threads[current_thread].append(start_node)
+        sorted_threads[current_thread].append(end_node)
 
-        # squishing parameter for nodes facing apart from each other
-        if len(angles) > 0:
-            tau = (np.min(angles) / np.pi) * squish
-        else:
-            tau = squish / 2
+        next_start_edge = end_edge
+        next_start_dir = (end_dir + np.pi) % (2*np.pi)
+        next_facing = not end_node[2]
 
-        next_edge_opp_x, next_edge_opp_y = vertices[[v for v in next_edge if v != facing_junction][0]]
-        edgelength1 = np.sqrt((opp_x - junc_x) ** 2 + (opp_y - junc_y) ** 2)
-        edgelength2 = np.sqrt((next_edge_opp_x - junc_x) ** 2 + (next_edge_opp_y - junc_y) ** 2)
+        next_start_node = [next_start_edge,next_start_dir,next_facing, None]
 
-        #case that curve stays on the same edge -> create two curves meeting at the end of the edge
-        if (curr_edge == next_edge):
-            #curve 1
-            edge_angle = np.arctan2(y1 - vertices[curr_edge[1]][1], x1 - vertices[curr_edge[1]][0])
+        #remove next starting node from list
+        for n in nodes:
+            if n[0] == end_edge:
+                if np.isclose(n[1],next_start_dir,atol=0.1):
+                    nodes.remove(n)
+                    break
 
-            cntrl1 = [x1 + np.cos(curr_dir + edge_angle) * edgelength1 * tau,
-                      y1 + np.sin(curr_dir + edge_angle) * edgelength1 * tau]
 
-            edgelength2 = np.arccos(np.pi / 4) * edgelength1
+"""
+Computing bezier curves on a graph using the Mercat Algorithm
+(angle starts counterclockwise)
+"""
+def compute_curves(vertices, edges, squish=0.5):
+    nodes = []
+    for e in edges:
+        #(edge - node direction - node directed to first edge vertex - angle to next node)
+        nodes.extend([[e, np.pi * 3 / 4, False,None], [e, np.pi * 7 / 4,True, None],
+                      [e, np.pi / 4, True,None], [e, np.pi * 5 / 4, False,None]])
 
-            if curr_dir == np.pi / 4 or curr_dir == np.pi * 7 / 4:
-                dir_angle = -np.pi / 2
+    #sorts threads in the right interlacement order
+    sorted_threads = get_node_order(vertices, edges, nodes)
+    curves = {}
+    for k, thread in sorted_threads.items():
+        i = 0
+        curves[k] = []
+        while True:
+            i += 1
+            #print(i)
+            curr_node = thread.pop(0)
+            curr_edge = curr_node[0]
+            curr_dir = curr_node[1]
+            curr_angle = curr_node[3]
+            #print("curr node", curr_node)
+
+
+            next_node = thread.pop(0)
+            next_edge = next_node[0]
+            next_dir = next_node[1]
+            #print("next node", next_node)
+
+            # determine which junction the node faces
+            if curr_node[2]:
+                facing_junction = curr_edge[0]
+                opp_junction = curr_edge[1]
             else:
-                dir_angle = np.pi / 2
+                facing_junction = curr_edge[1]
+                opp_junction = curr_edge[0]
 
-            cntrl2 = [junc_x + np.cos(edge_angle + dir_angle) * edgelength2 * tau,
-                      junc_y + np.sin(edge_angle + dir_angle) * edgelength2 * tau]
+            junc_x, junc_y = vertices[facing_junction]
+            opp_x, opp_y = vertices[opp_junction]
 
-            curves.append(([x1, y1], cntrl1, cntrl2, vertices[facing_junction]))
+            # determine anchor points of bezier curve
+            x1, y1 = midpoint(vertices[curr_edge[0]], vertices[curr_edge[1]])
+            x2, y2 = midpoint(vertices[next_edge[0]], vertices[next_edge[1]])
 
-            # curve 2
-            edge_angle = np.arctan2(y1 - vertices[curr_edge[1]][1], x1 - vertices[curr_edge[1]][0])
+            next_edge_opp_x, next_edge_opp_y = vertices[[v for v in next_edge if v != facing_junction][0]]
+            edgelength1 = np.sqrt((opp_x - junc_x) ** 2 + (opp_y - junc_y) ** 2)
+            edgelength2 = np.sqrt((next_edge_opp_x - junc_x) ** 2 + (next_edge_opp_y - junc_y) ** 2)
 
-            cntrl1 = [x1 + np.cos(next_dir + edge_angle) * edgelength1 * tau,
-                      y1 + np.sin(next_dir + edge_angle) * edgelength1 * tau]
-
-            adjacent_length = np.arccos(np.pi / 4) * edgelength1
-
-            if curr_dir == np.pi / 4 or curr_dir == np.pi * 7 / 4:
-                dir_angle = -np.pi / 2
+            # squishing parameter for nodes facing apart from each other
+            if curr_angle > 0:
+                tau = (curr_angle / np.pi) * squish
             else:
-                dir_angle = np.pi / 2
-
-            cntrl2 = [junc_x + np.cos(edge_angle - dir_angle) * adjacent_length * tau,
-                      junc_y + np.sin(edge_angle - dir_angle) * adjacent_length * tau]
-
-            curves.append(([x1, y1], cntrl1, cntrl2, vertices[facing_junction]))
-        else: #normal case
-            edge_angle1 = np.arctan2(y1 - vertices[curr_edge[1]][1], x1 - vertices[curr_edge[1]][0])
-
-            cntrl1 = [x1 + np.cos(curr_dir + edge_angle1) * edgelength1 * tau,
-                      y1 + np.sin(curr_dir + edge_angle1) * edgelength1 * tau]
-
-            edge_angle2 = np.arctan2(y2 - vertices[next_edge[1]][1], x2 - vertices[next_edge[1]][0])
-
-            cntrl2 = [x2 + np.cos(next_dir + edge_angle2) * edgelength2 * tau,
-                      y2 + np.sin(next_dir + edge_angle2) * edgelength2 * tau]
-
-            curves.append(([x1, y1], cntrl1, cntrl2, [x2, y2]))
-
-        #remove this node from the list and continue
-        nodes.pop(nodes.index(next_node))
+                tau = squish / 2
 
 
+            #case that curve stays on the same edge -> create two curves meeting at the end of the edge
+            if (curr_edge == next_edge):
+                #curve 1
+                edge_angle = np.arctan2(y1 - vertices[curr_edge[1]][1], x1 - vertices[curr_edge[1]][0])
 
+                cntrl1 = [x1 + np.cos(curr_dir + edge_angle) * edgelength1 * tau,
+                          y1 + np.sin(curr_dir + edge_angle) * edgelength1 * tau]
 
+                edgelength2 = np.arccos(np.pi / 4) * edgelength1
 
+                if curr_dir == np.pi / 4 or curr_dir == np.pi * 7 / 4:
+                    dir_angle = -np.pi / 2
+                else:
+                    dir_angle = np.pi / 2
 
+                cntrl2 = [junc_x + np.cos(edge_angle + dir_angle) * edgelength2 * tau,
+                          junc_y + np.sin(edge_angle + dir_angle) * edgelength2 * tau]
 
+                curves[k].append(([x1, y1], cntrl1, cntrl2, vertices[facing_junction],curr_dir))
+
+                # curve 2
+                edge_angle = np.arctan2(y1 - vertices[curr_edge[1]][1], x1 - vertices[curr_edge[1]][0])
+
+                cntrl1 = [x1 + np.cos(next_dir + edge_angle) * edgelength1 * tau,
+                          y1 + np.sin(next_dir + edge_angle) * edgelength1 * tau]
+
+                adjacent_length = np.arccos(np.pi / 4) * edgelength1
+
+                if curr_dir == np.pi / 4 or curr_dir == np.pi * 7 / 4:
+                    dir_angle = -np.pi / 2
+                else:
+                    dir_angle = np.pi / 2
+
+                cntrl2 = [junc_x + np.cos(edge_angle - dir_angle) * adjacent_length * tau,
+                          junc_y + np.sin(edge_angle - dir_angle) * adjacent_length * tau]
+                #print(([x1, y1], cntrl1, cntrl2, vertices[facing_junction]))
+                curves[k].append(([x1, y1], cntrl1, cntrl2, vertices[facing_junction],next_dir))
+            else: #normal case
+                edge_angle1 = np.arctan2(y1 - vertices[curr_edge[1]][1], x1 - vertices[curr_edge[1]][0])
+
+                cntrl1 = [x1 + np.cos(curr_dir + edge_angle1) * edgelength1 * tau,
+                          y1 + np.sin(curr_dir + edge_angle1) * edgelength1 * tau]
+                #print(tau)
+
+                edge_angle2 = np.arctan2(y2 - vertices[next_edge[1]][1], x2 - vertices[next_edge[1]][0])
+
+                cntrl2 = [x2 + np.cos(next_dir + edge_angle2) * edgelength2 * tau,
+                          y2 + np.sin(next_dir + edge_angle2) * edgelength2 * tau]
+
+                #print(edge_angle1,edge_angle2)
+                #print(([x1, y1], cntrl1, cntrl2, [x2, y2]))
+                curves[k].append(([x1, y1], cntrl1, cntrl2, [x2, y2],curr_dir))
+
+            if len(thread) == 0:
+                break
+            #print("---------------")
+
+    return curves
 
 
 
