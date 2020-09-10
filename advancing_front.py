@@ -5,14 +5,14 @@ from segmentation import regularize_contour
 import numpy as np
 import matplotlib.pyplot as plt
 
-def wavefront_meshing(polygon, edge_size):
+def wavefront_meshing(polygon, edge_size, graphic=None):
     # visualize wavefront on selected segment
     ext = polygon.exterior.xy
     coords = [[ext[0][i], ext[1][i]] for i in range(len(ext[0]))]
 
     wavefront_init = regularize_contour(coords, edge_size)
     front = advancing_front(wavefront_init,stepsize= edge_size,
-                                    min_step = edge_size/1.5)
+                                    min_step = edge_size/1.5, graphic=graphic)
 
     triangles = triangulate(MultiPoint(front["node_coords"]))
 
@@ -41,7 +41,7 @@ def wavefront_meshing(polygon, edge_size):
     return front["node_coords"], indices
 
 
-def advancing_front(seed, stepsize=20, min_step=4.5, graphic = False):
+def advancing_front(seed, stepsize=20, min_step=4.5, graphic = None):
     front = {"node_coords": seed, "direction": wv_direction(seed), "it": np.zeros(len(seed))}
     boundary = LineString(seed)
     area = Polygon(seed)
@@ -57,6 +57,7 @@ def advancing_front(seed, stepsize=20, min_step=4.5, graphic = False):
             plt.scatter(x=current_coords[:, 0], y=current_coords[:, 1], color="red", marker="X",linewidths=0.1)
 
         if len(current_coords) == 0:
+            plt.close()
             break
 
         # forward steps
@@ -74,7 +75,7 @@ def advancing_front(seed, stepsize=20, min_step=4.5, graphic = False):
             plt.scatter(x=right_step[:, 0], y=right_step[:, 1], color="magenta", marker="o")
             plt.scatter(x=left_step[:, 0], y=left_step[:, 1], color="magenta", marker="o")
             plt.axis('scaled')
-            plt.savefig(str(it) + "_steps.png")
+            plt.savefig(str(graphic)+" "+str(it) + "_steps.png")
             plt.close()
 
         # remove new points outside or too close to boundary
@@ -128,9 +129,9 @@ def advancing_front(seed, stepsize=20, min_step=4.5, graphic = False):
             front["it"] = np.append(front["it"], [min(a_it, b_it)], axis=0)
         print(i,"merged")
         if graphic:
-            plt.scatter(x=front["node_coords"][:, 0], y=front["node_coords"][:, 1], color="yellow", marker="o")
+            plt.scatter(x=front["node_coords"][:, 0], y=front["node_coords"][:, 1], color="black", marker="o")
             plt.axis('scaled')
-            plt.savefig(str(it)+"_end.png")
+            plt.savefig(str(graphic)+" "+str(it)+"_end.png")
             plt.close()
         it += 1
     return front

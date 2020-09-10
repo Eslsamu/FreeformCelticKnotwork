@@ -4,13 +4,12 @@ import scipy.spatial
 import meshplex
 
 """
-Simple mesh generator inspired by distmesh
-author: nschloe
-dmsh : https://github.com/nschloe/dmsh
+Simple spring force based mesh generator inspired by:
 
-edit: removed feature points and #TODO added image feature force
+dmsh : https://github.com/nschloe/dmsh
+author: nschloe
 """
-#TODO add image feature force
+#TODO extend to quadrilateral meshes and see if that works
 
 def unique_rows(a):
     # The cleaner alternative `numpy.unique(a, axis=0)` is slow; cf.
@@ -83,49 +82,19 @@ def generate(
     edge_size,
     tol=1.0e-5,
     random_seed=0,
-    show=False,
     max_steps=1000,
     verbose=False,
 ):
-    # Find h0 from edge_size (function)
-    if callable(edge_size):
-        edge_size_function = edge_size
-        # Find h0 by sampling
-        h00 = (geo.bounding_box[1] - geo.bounding_box[0]) / 100
-        pts = create_staggered_grid(h00, geo.bounding_box)
-        sizes = edge_size_function(pts.T)
-        assert numpy.all(sizes > 0.0), "edge_size_function must be strictly positive."
-        h0 = numpy.min(sizes)
-    else:
-        h0 = edge_size
-
-        def edge_size_function(pts):
-            return numpy.full(pts.shape[1], edge_size)
 
     if random_seed is not None:
         numpy.random.seed(random_seed)
 
-    pts = create_staggered_grid(h0, geo.bounding_box)
+    pts = create_staggered_grid(edge_size, geo.bounding_box)
 
     eps = 1.0e-10
 
     # remove points outside of the region
     pts = pts[geo.dist(pts.T) < eps]
-
-    # evaluate the element size function, remove points according to it
-    alpha = 1.0 / edge_size_function(pts.T) ** 2
-    pts = pts[numpy.random.rand(pts.shape[0]) < alpha / numpy.max(alpha)]
-
-    num_feature_points = geo.feature_points.shape[0]
-    if num_feature_points > 0:
-        # remove all points which are equal to a feature point
-        diff = numpy.array([[pt - fp for fp in geo.feature_points] for pt in pts])
-        dist = numpy.einsum("...k,...k->...", diff, diff)
-        ftol = h0 / 10
-        equals_feature_point = numpy.any(dist < ftol ** 2, axis=1)
-        pts = pts[~equals_feature_point]
-        # Add feature points
-        pts = numpy.concatenate([geo.feature_points, pts])
 
     cells, edges = _recell(pts, geo)
 
@@ -135,7 +104,7 @@ def generate(
         mesh,
         edges,
         geo,
-        edge_size_function,
+        edge_size,
         max_steps,
         tol,
         verbose,
@@ -153,7 +122,7 @@ def distmesh_smoothing(
     mesh,
     edges,
     geo,
-    edge_size_function,
+    edge_size,
     max_steps,
     tol,
     verbose,
@@ -189,7 +158,8 @@ def distmesh_smoothing(
         edge_midpoints = (
             mesh.node_coords[edges[:, 1]] + mesh.node_coords[edges[:, 0]]
         ) / 2
-        p = edge_size_function(edge_midpoints.T)
+        p = numpy.full(edge_midpoints.shape[0], edge_size) #.full(edges.shape[0],edge_size)
+
         desired_lengths = (
             f_scale
             * p

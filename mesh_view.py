@@ -81,13 +81,13 @@ class MeshArea(QWidget):
                     path.closeSubpath()
 
                     # fill the cell with color intensity based on the cell quality
-                    qual = submesh.cell_quality[i]
+                    qual = 1
                     if display_cell_quality:
                         self.qp.setBrush(QBrush(QColor(0, 255, 0, int(qual * 255))))
                     else:
                         self.qp.setBrush(QBrush(QColor(0, 255, 0, 0)))
                     self.qp.drawPath(path)
-
+    """
     def mousePressEvent(self, e):
         graph = self.parent.graph
 
@@ -141,3 +141,4 @@ class MeshArea(QWidget):
                     print("move vertex")
 
         self.update()
+    """

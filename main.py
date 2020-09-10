@@ -19,14 +19,13 @@ from mesh_view import MeshArea
 from knot_view import KnotArea
 from segmentation import run_segmentation
 from meshing import mesh_segments
-from quad_conversion import triangle_to_3_4_greedy, triangle_to_3_4_browne
+from quad_conversion import triangle_to_3_4_greedy, triangle_to_3_4_browne, triangle_to_3_4_ilp
 
 
 """
 Main class inherited from a QMainWindow which is the main window of the program.
 """
 class Window(QMainWindow):
-
 
     #display
     #TODO change to toggle
@@ -284,6 +283,7 @@ class Window(QMainWindow):
 
         # combobox converter
         self.converter_combobox = QComboBox()
+        self.converter_combobox.addItem("ilp")
         self.converter_combobox.addItem("greedy")
         self.converter_combobox.addItem("browne")
         grid.addWidget(self.converter_combobox, 0, 6)
@@ -298,6 +298,11 @@ class Window(QMainWindow):
         self.join_th_slider.valueChanged.connect(self.set_params)
         grid.addWidget(self.join_th_slider, 1, 6)
         grid.addWidget(self.join_th_label, 1, 7)
+
+        # adaptive edge size
+        self.adaptive_edge_size_button = QPushButton("adaptive edge size")
+        self.adaptive_edge_size_button.setCheckable(True)
+        grid.addWidget(self.adaptive_edge_size_button, 2, 6)
 
         self.set_knot_width()
         self.set_selected_segment()
@@ -382,8 +387,8 @@ class Window(QMainWindow):
         self.triangle_mesh = mesh_segments(self.segments,
                                            self.parameters["min_edge_size"],
                                            generator = self.generator_combobox.currentText(),
-                                           cvt = self.cvt_button.isChecked())
-        self.knot_progression_slider.setRange(0,int(len(self.triangle_mesh.get(0).node_coords)*5))
+                                           cvt = self.cvt_button.isChecked(),
+                                           adaptive = self.adaptive_edge_size_button.isChecked())
         self.meshArea.update()
 
     def run_quad_conversion(self):
@@ -394,6 +399,9 @@ class Window(QMainWindow):
                                                         segments = self.segments, alpha=self.parameters["alpha"])
         if self.converter_combobox.currentText() == "browne":
             self.tri_quad_mesh = triangle_to_3_4_browne(self.triangle_mesh, th=self.parameters["join_th"])
+        if self.converter_combobox.currentText() == "ilp":
+            self.tri_quad_mesh = triangle_to_3_4_ilp(self.triangle_mesh, segments= self.segments,alpha=self.parameters["alpha"])
+
         self.meshtype_button.setChecked(True)
         print("finished conversion")
         self.update()

@@ -10,13 +10,16 @@ Mesh each segment and skip segments enclosed in other segments to display object
 
 returns a dictionary of triangles meshes for each segment
 """
-def mesh_segments(segments, edge_size, generator, cvt = False):
+def mesh_segments(segments, edge_size, generator, cvt = False, adaptive = True):
     triangle_mesh = {}
     # TODO mesh each segment with adaptive edge size
     skipped = []
     for i, segment in enumerate(segments):
         print("meshing segment", i, "/", len(segments))
 
+        if adaptive:
+            edge_size = min(edge_size,segment["diameter"]*2)
+        print("edge_size",edge_size)
         polygon = segment["polygon"]
 
         # skip segments a that are enclosed in another segment b which was not skipped before
@@ -42,7 +45,7 @@ def mesh_segments(segments, edge_size, generator, cvt = False):
             X, cells = distmesh.generate(geo, edge_size=edge_size, verbose = False)
             print("nodes", X.shape, "cells", cells.shape)
         elif generator == "wavefront":
-            X, cells = wavefront_meshing(polygon,edge_size)
+            X, cells = wavefront_meshing(polygon, edge_size=edge_size, graphic=i)
         else:
             raise Exception("choose dmsh or wavefront as mesh generator")
 
@@ -51,7 +54,7 @@ def mesh_segments(segments, edge_size, generator, cvt = False):
             # try to further optimize the mesh
             try:
                 # optimize it with centroidal voronoi tesselation
-                X, cells = optimesh.cvt.quasi_newton_uniform_full(X, cells, 1.0e-10, 100)
+                X, cells = optimesh.cvt.quasi_newton_uniform_full(X, cells, 1.0e-2, 100)
             except meshplex.exceptions.MeshplexError as err:
                 print(err)
 
@@ -82,7 +85,7 @@ def polygon2geo(polygon):
         inner.append(hole)
 
     if len(inner) > 1:
-        inner = distmesh.Union(inner)
+        inner = dmsh.Union(inner)
         geo = dmsh.Difference(outer, inner)
     elif len(inner) == 1:
         inner = inner[0]
